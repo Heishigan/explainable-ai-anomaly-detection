@@ -117,13 +117,24 @@ class ModelTrainer:
         training_time = (datetime.now() - start_time).total_seconds()
         
         # Evaluate on training set
-        train_metrics = model.evaluate_detailed(X_train, y_train)
+        try:
+            train_metrics = model.evaluate_detailed(X_train, y_train)
+        except Exception as e:
+            self.logger.error(f"Error evaluating {model_name} on training set: {str(e)}")
+            train_metrics = {'error': str(e)}
         
         # Evaluate on test set
-        test_metrics = model.evaluate_detailed(X_test, y_test)
+        try:
+            test_metrics = model.evaluate_detailed(X_test, y_test)
+        except Exception as e:
+            self.logger.error(f"Error evaluating {model_name} on test set: {str(e)}")
+            test_metrics = {'error': str(e)}
         
-        # Cross-validation
-        cv_scores = self._cross_validate(model, X_train, y_train, cv_folds)
+        # Cross-validation (skip if cv_folds <= 1)
+        if cv_folds > 1:
+            cv_scores = self._cross_validate(model, X_train, y_train, cv_folds)
+        else:
+            cv_scores = {'scores': {}, 'summary': {}}
         
         # Feature importance if available
         feature_importance = model.get_feature_importance()

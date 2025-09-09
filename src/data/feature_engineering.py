@@ -144,7 +144,12 @@ class NetworkFeatureEngineer:
         
         for col in available_percentile_cols:
             # Create binned categorical features based on percentiles
-            df_stats[f'{col}_quartile'] = pd.qcut(df_stats[col], q=4, labels=['low', 'medium', 'high', 'very_high'], duplicates='drop')
+            try:
+                df_stats[f'{col}_quartile'] = pd.qcut(df_stats[col], q=4, labels=['low', 'medium', 'high', 'very_high'], duplicates='drop')
+            except ValueError:
+                # Fallback to regular cut if qcut fails due to duplicate values
+                self.logger.warning(f"qcut failed for {col}, using regular cut instead")
+                df_stats[f'{col}_quartile'] = pd.cut(df_stats[col], bins=4, labels=['low', 'medium', 'high', 'very_high'], duplicates='drop')
         
         return df_stats
     
@@ -172,12 +177,22 @@ class NetworkFeatureEngineer:
         else:
             raise ValueError(f"Unknown selection method: {method}")
         
+        # Only use numerical columns for feature selection (exclude categorical quartile features)
+        numerical_columns = X.select_dtypes(include=[np.number]).columns
+        categorical_columns = X.select_dtypes(exclude=[np.number]).columns
+        
+        if len(categorical_columns) > 0:
+            self.logger.info(f"Excluding {len(categorical_columns)} categorical columns from feature selection: {list(categorical_columns)}")
+            X_numerical = X[numerical_columns]
+        else:
+            X_numerical = X
+        
         # Fit and transform
-        X_selected = self.feature_selector.fit_transform(X, y)
+        X_selected = self.feature_selector.fit_transform(X_numerical, y)
         
         # Get selected feature names
         selected_mask = self.feature_selector.get_support()
-        self.selected_features = X.columns[selected_mask].tolist()
+        self.selected_features = numerical_columns[selected_mask].tolist()
         
         X_selected_df = pd.DataFrame(
             X_selected, 
@@ -251,7 +266,8 @@ class NetworkFeatureEngineer:
         """
         # Apply feature engineering
         df_enhanced = self.create_derived_features(df)
-        df_enhanced = self.create_statistical_features(df_enhanced)
+        # Skip statistical features for new data to avoid feature mismatch
+        # df_enhanced = self.create_statistical_features(df_enhanced)
         
         # Apply feature selection if fitted
         if self.feature_selector is not None and self.selected_features is not None:

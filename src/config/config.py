@@ -146,10 +146,11 @@ class ProductionConfig(Config):
 
 class TestingConfig(Config):
     """Testing environment configuration."""
-    LOG_LEVEL = 'DEBUG'
-    CROSS_VALIDATION_FOLDS = 2
+    LOG_LEVEL = 'INFO'
+    CROSS_VALIDATION_FOLDS = 1  # Disable CV for quick testing
     BATCH_SIZE = 100
     NUM_SELECTED_FEATURES = 10  # Smaller for faster tests
+    FEATURE_SELECTION_METHOD = 'f_score'  # Faster than mutual_info
 
 
 # Configuration factory

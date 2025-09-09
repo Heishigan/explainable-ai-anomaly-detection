@@ -24,11 +24,12 @@ cd notebooks
 The project uses the UNSW-NB15 dataset with the following structure:
 
 - **Training set**: 175,341 records with 45 features
-- **Testing set**: 82,332 records with 45 features 
+- **Testing set**: 82,332 records with 45 features
 - **Target variable**: `label` (0=normal, 1=attack)
 - **Attack categories**: 9 types including DoS, Exploits, Fuzzers, Generic, Reconnaissance, Analysis, Backdoors, Shellcode, Worms
 
 ### Key Features
+
 - **Network flow features**: duration, packet counts, byte counts, protocol info
 - **Statistical features**: jitter, load, window sizes, TCP metrics
 - **Behavioral features**: connection counts, service patterns, timing patterns
@@ -49,18 +50,23 @@ The project uses the UNSW-NB15 dataset with the following structure:
 ## ML Pipeline Considerations
 
 ### Data Preprocessing Requirements
+
 - **Categorical encoding**: Protocol, service, state, attack_cat columns need encoding
 - **Feature scaling**: Wide range of numerical values (bytes, rates, counts) require normalization
 - **Class imbalance**: 68% attack vs 32% normal traffic - consider sampling strategies
 - **High-dimensional**: 45 features may benefit from dimensionality reduction or feature selection
 
 ### Explainability Framework
+
 The project uses explainability libraries:
+
 - **SHAP**: For model-agnostic explanations and feature importance
 - **LIME**: For local interpretable model explanations
 
 ### Expected Model Types
+
 Based on dependencies, the pipeline likely supports:
+
 - **Deep learning**: TensorFlow/Keras for neural networks
 - **Traditional ML**: scikit-learn for ensemble methods, SVM, etc.
 - **Preprocessing**: pandas, numpy for data manipulation

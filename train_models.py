@@ -176,7 +176,8 @@ def train_models(X_train: pd.DataFrame,
     )
     
     # Compare models
-    comparison_df = trainer.compare_models(show_plot=True)
+    show_plot = config.__class__.__name__ != 'TestingConfig'  # Don't show plots in testing
+    comparison_df = trainer.compare_models(show_plot=show_plot)
     logger.info("Model comparison:")
     logger.info("\n" + comparison_df.to_string())
     

@@ -57,6 +57,18 @@ class NetworkDataPreprocessor:
             self.numerical_columns = [col for col in numerical_cols if col not in exclude_cols]
             
             self.logger.info(f"Auto-identified {len(self.numerical_columns)} numerical columns")
+        
+        if self.categorical_columns is None:
+            # Exclude target and attack category columns and numerical columns
+            exclude_cols = [self.target_column, self.attack_category_column, 'id']
+            exclude_cols = [col for col in exclude_cols if col in df.columns]
+            exclude_cols.extend(self.numerical_columns)
+            
+            # Get categorical columns
+            categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
+            self.categorical_columns = [col for col in categorical_cols if col not in exclude_cols]
+            
+            self.logger.info(f"Auto-identified {len(self.categorical_columns)} categorical columns")
     
     def _handle_categorical_encoding(self, df: pd.DataFrame, fit: bool = True) -> pd.DataFrame:
         """
@@ -86,11 +98,18 @@ class NetworkDataPreprocessor:
                 # Transform using fitted encoder
                 if col in self.label_encoders:
                     df_encoded[col] = df_encoded[col].fillna('unknown')
-                    # Handle unseen categories
-                    known_classes = self.label_encoders[col].classes_
-                    df_encoded[col] = df_encoded[col].apply(
-                        lambda x: x if x in known_classes else 'unknown'
-                    )
+                    # Handle unseen categories by mapping them to 'unknown' if it exists in training
+                    known_classes = set(self.label_encoders[col].classes_)
+                    if 'unknown' not in known_classes:
+                        # If 'unknown' wasn't in training data, map unseen values to the most frequent class
+                        most_frequent = self.label_encoders[col].classes_[0]  # First class is most frequent in LabelEncoder
+                        df_encoded[col] = df_encoded[col].apply(
+                            lambda x: x if x in known_classes else most_frequent
+                        )
+                    else:
+                        df_encoded[col] = df_encoded[col].apply(
+                            lambda x: x if x in known_classes else 'unknown'
+                        )
                     df_encoded[col] = self.label_encoders[col].transform(df_encoded[col])
         
         return df_encoded
@@ -149,7 +168,7 @@ class NetworkDataPreprocessor:
         self._identify_columns(df)
         
         # Store feature columns for later use
-        self.feature_columns = self.categorical_columns + self.numerical_columns
+        self.feature_columns = list(self.categorical_columns) + list(self.numerical_columns)
         
         # Step 1: Handle categorical encoding
         df_processed = self._handle_categorical_encoding(df, fit=True)

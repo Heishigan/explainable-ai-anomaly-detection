@@ -1,5 +1,9 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(git add:*)"
+    ],
     "defaultMode": "acceptEdits"
   }
 }

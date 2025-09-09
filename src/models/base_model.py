@@ -137,7 +137,19 @@ class BaseAnomalyDetector(ABC):
         class_report = classification_report(y, y_pred, output_dict=True)
         
         # Attack detection specific metrics
-        tn, fp, fn, tp = cm.ravel() if cm.size == 4 else (0, 0, 0, 0)
+        if cm.size == 4:
+            tn, fp, fn, tp = cm.ravel()
+        elif cm.size == 1:
+            # Only one class present
+            if len(np.unique(y)) == 1 and len(np.unique(y_pred)) == 1:
+                if y.iloc[0] == 0:  # Only normal samples
+                    tn, fp, fn, tp = cm[0, 0], 0, 0, 0
+                else:  # Only attack samples
+                    tn, fp, fn, tp = 0, 0, 0, cm[0, 0]
+            else:
+                tn, fp, fn, tp = 0, 0, 0, 0
+        else:
+            tn, fp, fn, tp = 0, 0, 0, 0
         
         detailed_metrics = {
             **metrics,
@@ -258,7 +270,7 @@ class BaseAnomalyDetector(ABC):
             'name': self.name,
             'is_fitted': self.is_fitted,
             'num_features': len(self.feature_names) if self.feature_names else None,
-            'num_classes': len(self.classes_) if self.classes_ else None,
+            'num_classes': len(self.classes_) if self.classes_ is not None else None,
             'model_params': self.model_params,
             'model_type': type(self.model).__name__ if self.model else None
         }

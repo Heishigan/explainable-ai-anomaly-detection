@@ -77,6 +77,7 @@ class WebDashboardServer:
         # System components
         self.model = None
         self.preprocessor = None
+        self.feature_engineer = None
         self.realtime_explainer = None
         self.dashboard_manager = None
         
@@ -88,6 +89,14 @@ class WebDashboardServer:
         self.demo_thread = None
         self.test_data = None
         self.original_test_data = None
+        
+        # Stratified sampling for demo
+        self.attack_samples = None
+        self.normal_samples = None
+        self.attack_indices = None
+        self.normal_indices = None
+        self.demo_alternating = True  # Alternate between attack and normal
+        self.demo_stats = {'attacks_shown': 0, 'normal_shown': 0, 'total_shown': 0}
         
         # Setup routes and static files
         self._setup_routes()
@@ -229,7 +238,34 @@ class WebDashboardServer:
             return {
                 "running": self.demo_running,
                 "system_ready": self.realtime_explainer is not None,
-                "data_loaded": self.test_data is not None and not self.test_data.empty
+                "data_loaded": self.test_data is not None and not self.test_data.empty,
+                "demo_stats": self.demo_stats,
+                "alternating_mode": self.demo_alternating
+            }
+        
+        @self.app.get("/api/demo/stats")
+        async def get_demo_stats():
+            """Get demo statistics"""
+            if self.attack_samples is None or self.normal_samples is None:
+                return {"error": "Demo data not loaded"}
+            
+            total_attacks = len(self.attack_samples)
+            total_normal = len(self.normal_samples)
+            total_samples = total_attacks + total_normal
+            
+            return {
+                "dataset_stats": {
+                    "total_samples": total_samples,
+                    "attack_samples": total_attacks,
+                    "normal_samples": total_normal,
+                    "attack_percentage": round(total_attacks / total_samples * 100, 1),
+                    "normal_percentage": round(total_normal / total_samples * 100, 1)
+                },
+                "demo_stats": self.demo_stats.copy(),
+                "demo_mode": {
+                    "alternating": self.demo_alternating,
+                    "pattern": "2 attacks : 1 normal" if self.demo_alternating else "random"
+                }
             }
         
         @self.app.websocket("/ws")
@@ -275,40 +311,149 @@ class WebDashboardServer:
             return False
     
     async def _load_trained_components(self) -> bool:
-        """Load trained models and preprocessors"""
-        logger.info("Loading trained models...")
+        """Load trained models and preprocessors from existing results"""
+        logger.info("Loading trained components...")
         
         try:
-            # Load preprocessor
-            preprocessor_path = Path(self.config.PREPROCESSING_DIR) / 'preprocessor.joblib'
+            # Load preprocessor from existing results
+            preprocessor_path = Path('results/preprocessing/preprocessor.joblib')
             if preprocessor_path.exists():
                 self.preprocessor = NetworkDataPreprocessor.load(str(preprocessor_path))
                 logger.info("Loaded preprocessor")
             else:
-                logger.warning("Preprocessor not found")
+                logger.error("Preprocessor not found. Please run training first:")
+                logger.error("  python train_models.py")
                 return False
             
-            # Load best model
-            trainer = ModelTrainer(results_dir=self.config.MODELS_DIR)
-            try:
-                best_model_name, self.model = trainer.get_best_model()
-                if self.model:
-                    logger.info(f"Loaded best model: {best_model_name}")
+            # Load feature engineer - check if it exists in preprocessing results
+            from src.data.feature_engineering import NetworkFeatureEngineer
+            feature_engineer_path = Path('results/preprocessing/feature_engineer.joblib')
+            if feature_engineer_path.exists():
+                self.feature_engineer = NetworkFeatureEngineer.load(str(feature_engineer_path))
+                logger.info("Loaded feature engineer")
+            else:
+                # If not found, create a new one and initialize it to match the existing preprocessor
+                logger.warning("Feature engineer not found, creating new one...")
+                self.feature_engineer = NetworkFeatureEngineer()
+                # Load some sample data to initialize feature engineer
+                if os.path.exists(self.config.TRAIN_DATA_PATH):
+                    sample_data = pd.read_csv(self.config.TRAIN_DATA_PATH).head(1000)
+                    processed_sample = self.preprocessor.transform(sample_data)
+                    
+                    # Apply feature engineering and selection to match training pipeline
+                    enhanced_sample = self.feature_engineer.create_derived_features(processed_sample)
+                    if 'label' in sample_data.columns:
+                        # Perform feature selection with labels
+                        selected_features = self.feature_engineer.select_features(
+                            enhanced_sample, 
+                            sample_data['label'].head(1000),
+                            method='f_score',  # Faster method
+                            k_features=min(50, enhanced_sample.shape[1])
+                        )
+                        logger.info(f"Initialized feature engineer with {len(self.feature_engineer.selected_features)} features")
+                    else:
+                        # If no labels, just create derived features
+                        self.feature_engineer.selected_features = enhanced_sample.columns.tolist()
+                        logger.info("Initialized feature engineer without feature selection (no labels)")
+                    
+                    # Save for future use
+                    feature_engineer_path.parent.mkdir(exist_ok=True, parents=True)
+                    self.feature_engineer.save(str(feature_engineer_path))
+                    logger.info("Created and saved new feature engineer")
                 else:
-                    logger.error("No trained models found")
+                    logger.error("Cannot create feature engineer without training data")
                     return False
-            except Exception as e:
-                logger.warning(f"Could not load best model: {e}")
+            
+            # Load model from existing results
+            from src.models.ensemble_models import XGBoostDetector
+            model_path = Path('results/models/xgboost_model.joblib')
+            if model_path.exists():
+                self.model = XGBoostDetector.load(str(model_path))
+                logger.info("Loaded XGBoost model")
+            else:
+                logger.error("XGBoost model not found. Please run training first:")
+                logger.error("  python train_models.py")
                 return False
             
+            # Validate feature counts
+            model_features = self.model.model.n_features_in_
+            expected_features = len(self.feature_engineer.selected_features)
+            
+            logger.info(f"Feature validation:")
+            logger.info(f"  Model expects: {model_features} features")
+            logger.info(f"  Feature engineer provides: {expected_features} features")
+            
+            if model_features != expected_features:
+                logger.warning(f"Feature count mismatch: model expects {model_features}, feature engineer provides {expected_features}")
+                logger.warning("This may cause issues. Consider retraining with consistent pipeline.")
+                # Don't fail - let it proceed and see if it works
+            
+            logger.info(f"Components loaded successfully: {model_features} model features")
             return True
             
         except Exception as e:
             logger.error(f"Failed to load trained components: {e}")
             return False
     
+    def _load_fallback_attack_samples(self) -> bool:
+        """
+        Fallback method to load attack samples directly from test CSV when 
+        regular data pipeline fails to find attack samples.
+        """
+        try:
+            logger.info("[FALLBACK] Loading attack samples directly from test CSV...")
+            
+            # Load raw test data directly
+            import pandas as pd
+            test_csv_path = "data/raw/UNSW_NB15_testing-set.csv"
+            
+            if not os.path.exists(test_csv_path):
+                logger.error(f"[FALLBACK] Test CSV not found: {test_csv_path}")
+                return False
+            
+            raw_test_df = pd.read_csv(test_csv_path)
+            logger.info(f"[FALLBACK] Loaded raw test data: {raw_test_df.shape}")
+            
+            # Check label distribution
+            if 'label' not in raw_test_df.columns:
+                logger.error("[FALLBACK] No 'label' column in raw test CSV")
+                return False
+                
+            label_counts = raw_test_df['label'].value_counts()
+            logger.info(f"[FALLBACK] Raw label distribution: {label_counts.to_dict()}")
+            
+            # Extract attack samples
+            attack_samples_raw = raw_test_df[raw_test_df['label'] == 1].head(1000)  # Limit to 1000 for performance
+            
+            if len(attack_samples_raw) == 0:
+                logger.error("[FALLBACK] No attack samples found in raw test CSV")
+                return False
+                
+            logger.info(f"[FALLBACK] Found {len(attack_samples_raw)} attack samples in raw CSV")
+            
+            # Process attack samples through the full pipeline
+            logger.info("[FALLBACK] Processing attack samples through pipeline...")
+            step1_preprocessed = self.preprocessor.transform(attack_samples_raw)
+            step2_engineered = self.feature_engineer.transform_new_data(step1_preprocessed)
+            
+            # Store processed attack samples
+            self.attack_samples = step2_engineered
+            self.attack_indices = np.arange(len(step2_engineered))  # Create new indices
+            
+            # Update original data reference for these samples
+            fallback_original_data = attack_samples_raw.reset_index(drop=True)
+            
+            logger.info(f"[FALLBACK] Successfully processed {len(self.attack_samples)} attack samples")
+            logger.info(f"[FALLBACK] Attack sample shape: {self.attack_samples.shape}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"[FALLBACK] Failed to load fallback attack samples: {e}")
+            return False
+    
     async def _load_test_data(self) -> bool:
-        """Load test data for demo"""
+        """Load test data for demo with stratified sampling using complete pipeline"""
         logger.info("Loading test data...")
         
         try:
@@ -317,9 +462,73 @@ class WebDashboardServer:
                 return False
             
             self.original_test_data = pd.read_csv(self.config.TEST_DATA_PATH)
-            self.test_data = self.preprocessor.transform(self.original_test_data)
             
-            logger.info(f"Loaded {len(self.test_data):,} test samples")
+            # Apply complete pipeline: preprocessor -> feature engineer
+            step1_preprocessed = self.preprocessor.transform(self.original_test_data)
+            step2_engineered = self.feature_engineer.transform_new_data(step1_preprocessed)
+            
+            self.test_data = step2_engineered
+            
+            # Separate attack and normal samples for demo
+            logger.info("Analyzing original test data for attack/normal separation...")
+            logger.info(f"  - Original data shape: {self.original_test_data.shape}")
+            logger.info(f"  - Original data columns: {list(self.original_test_data.columns)}")
+            
+            # Check label distribution in original data
+            if 'label' in self.original_test_data.columns:
+                original_label_counts = self.original_test_data['label'].value_counts()
+                logger.info(f"  - Original label distribution: {original_label_counts.to_dict()}")
+            else:
+                logger.error("  - ERROR: 'label' column not found in original test data!")
+                logger.info(f"  - Available columns: {list(self.original_test_data.columns)}")
+            
+            attack_mask = self.original_test_data['label'] == 1
+            normal_mask = self.original_test_data['label'] == 0
+            
+            logger.info(f"  - Attack mask: {attack_mask.sum()} True values out of {len(attack_mask)}")
+            logger.info(f"  - Normal mask: {normal_mask.sum()} True values out of {len(normal_mask)}")
+            
+            # Get indices for both processed and original data
+            self.attack_indices = np.where(attack_mask)[0]
+            self.normal_indices = np.where(normal_mask)[0]
+            
+            logger.info(f"  - Attack indices: {len(self.attack_indices)} samples")
+            logger.info(f"  - Normal indices: {len(self.normal_indices)} samples")
+            
+            # Store separated samples (using engineered features)
+            self.attack_samples = self.test_data[attack_mask]
+            self.normal_samples = self.test_data[normal_mask]
+            
+            attack_count = len(self.attack_samples)
+            normal_count = len(self.normal_samples)
+            total_count = len(self.test_data)
+            
+            logger.info(f"Demo sample separation completed:")
+            logger.info(f"  - Total processed samples: {total_count:,}")
+            logger.info(f"  - Attack samples available: {attack_count:,} ({attack_count/total_count*100:.1f}%)")
+            logger.info(f"  - Normal samples available: {normal_count:,} ({normal_count/total_count*100:.1f}%)")
+            
+            # Validation checks and fallback loading
+            if attack_count == 0:
+                logger.error("[CRITICAL] No attack samples found! Attempting fallback loading...")
+                logger.error("  - Check if test data contains samples with label=1")
+                logger.error("  - Verify data loading and preprocessing pipeline")
+                
+                # Fallback: Load attack samples directly from test CSV
+                if self._load_fallback_attack_samples():
+                    attack_count = len(self.attack_samples)
+                    logger.info(f"[FALLBACK SUCCESS] Loaded {attack_count} attack samples directly from test CSV")
+                else:
+                    logger.error("[FALLBACK FAILED] Could not load attack samples - dashboard will only show normal traffic")
+                    
+            elif attack_count < 100:
+                logger.warning(f"[WARNING] Only {attack_count} attack samples found. Demo may not be representative.")
+            
+            if normal_count == 0:
+                logger.error("[CRITICAL] No normal samples found!")
+            
+            logger.info(f"Complete pipeline: Raw ({len(self.original_test_data.columns)} cols) -> Preprocessor ({step1_preprocessed.shape[1]} cols) -> Feature Engineer ({self.test_data.shape[1]} cols)")
+            
             return True
             
         except Exception as e:
@@ -327,112 +536,53 @@ class WebDashboardServer:
             return False
     
     async def _initialize_explainer(self) -> bool:
-        """Initialize the real-time explainer"""
+        """Initialize the real-time explainer with loaded components"""
         logger.info("Initializing real-time explainer...")
         
         try:
-            # Get model feature requirements
-            model_n_features = None
-            if hasattr(self.model, 'model') and hasattr(self.model.model, 'n_features_in_'):
-                model_n_features = self.model.model.n_features_in_
-            elif hasattr(self.model, 'n_features_in_'):
-                model_n_features = self.model.n_features_in_
+            # Get background data (already processed through complete pipeline)
+            background_sample = self.test_data[:100]
+            background_data = background_sample.values
             
-            prep_features = self.preprocessor.get_feature_names()
-            prep_n_features = len(prep_features)
+            # Use feature engineer's selected feature names
+            feature_names = self.feature_engineer.selected_features
             
-            logger.info(f"Model expects {model_n_features} features, preprocessor provides {prep_n_features}")
+            # Validate feature consistency
+            model_features = self.model.model.n_features_in_
+            data_features = background_data.shape[1]
             
-            if model_n_features and model_n_features != prep_n_features:
-                logger.warning(f"Feature mismatch detected: model expects {model_n_features}, preprocessor provides {prep_n_features}")
-                logger.info("Creating feature alignment wrapper for demo purposes")
-                
-                # Create a wrapper that handles feature mismatch
-                from sklearn.base import BaseEstimator, TransformerMixin
-                
-                class FeatureAlignmentWrapper(BaseEstimator, TransformerMixin):
-                    def __init__(self, model, expected_features, provided_feature_names):
-                        self.model = model
-                        self.expected_n_features = expected_features
-                        self.provided_feature_names = provided_feature_names
-                        
-                    def predict(self, X):
-                        X_aligned = self._align_features(X)
-                        return self.model.predict(X_aligned)
-                        
-                    def predict_proba(self, X):
-                        X_aligned = self._align_features(X)
-                        return self.model.predict_proba(X_aligned)
-                        
-                    def _align_features(self, X):
-                        import numpy as np
-                        
-                        if isinstance(X, np.ndarray):
-                            current_n_features = X.shape[1]
-                        else:
-                            current_n_features = len(X.columns) if hasattr(X, 'columns') else X.shape[1]
-                        
-                        # If we have more features than expected, truncate
-                        if current_n_features > self.expected_n_features:
-                            if isinstance(X, np.ndarray):
-                                return X[:, :self.expected_n_features]
-                            else:
-                                return X.iloc[:, :self.expected_n_features].values
-                        
-                        # If we have fewer features than expected, pad with zeros
-                        elif current_n_features < self.expected_n_features:
-                            if isinstance(X, np.ndarray):
-                                padding = np.zeros((X.shape[0], self.expected_n_features - current_n_features))
-                                return np.hstack([X, padding])
-                            else:
-                                X_array = X.values if hasattr(X, 'values') else X
-                                padding = np.zeros((X_array.shape[0], self.expected_n_features - current_n_features))
-                                return np.hstack([X_array, padding])
-                        
-                        # Perfect match
-                        return X.values if hasattr(X, 'values') else X
-                
-                # Wrap the model
-                wrapped_model = FeatureAlignmentWrapper(self.model, model_n_features, prep_features)
-                
-                # Use original background data for SHAP (before alignment)
-                # The RealtimeExplainer will handle alignment separately for predictions
-                background_sample = self.test_data[:100]
-                background_data = background_sample.values  # Keep original 42 features for SHAP
-                
-                # Use only the actual preprocessor features for SHAP explanations
-                # The model wrapper will handle the feature alignment, but SHAP should only
-                # try to explain features that actually exist in the data
-                feature_names = prep_features
-                
-                self.realtime_explainer = RealtimeExplainer(
-                    model=wrapped_model,
-                    training_data=background_data,
-                    feature_names=feature_names,
-                    max_workers=2,
-                    queue_size=500
-                )
-            else:
-                # No mismatch, use directly
-                background_data = self.test_data[:100].values
-                feature_names = prep_features
-                
-                self.realtime_explainer = RealtimeExplainer(
-                    model=self.model,
-                    training_data=background_data,
-                    feature_names=feature_names,
-                    max_workers=2,
-                    queue_size=500
-                )
+            logger.info(f"Pipeline validation:")
+            logger.info(f"  Model expects: {model_features} features")
+            logger.info(f"  Background data has: {data_features} features")
+            logger.info(f"  Feature names: {len(feature_names)} features")
             
-            # Configure for web dashboard - use actual background data size
-            background_size = min(50, len(background_data))
+            if model_features != data_features:
+                logger.warning(f"Feature count mismatch: model={model_features}, data={data_features}")
+                # Try to proceed with available features
+                if data_features < model_features:
+                    logger.error("Background data has fewer features than model expects!")
+                    return False
+                else:
+                    # Trim background data to match model
+                    background_data = background_data[:, :model_features]
+                    logger.info(f"Trimmed background data to {model_features} features")
+            
+            # Initialize explainer with available data
+            self.realtime_explainer = RealtimeExplainer(
+                model=self.model,
+                training_data=background_data,
+                feature_names=feature_names[:model_features],  # Match feature names to model
+                max_workers=2,
+                queue_size=500
+            )
+            
+            # Configure for web dashboard
             self.realtime_explainer.update_configuration({
                 'enable_shap': True,
                 'enable_lime': False,
                 'fast_mode': True,
                 'cache_explanations': True,
-                'shap_background_size': background_size
+                'shap_background_size': min(50, len(background_data))
             })
             
             # Start processing
@@ -524,10 +674,25 @@ class WebDashboardServer:
         if self.demo_running:
             return
         
+        # Reset demo statistics
+        self.demo_stats = {'attacks_shown': 0, 'normal_shown': 0, 'total_shown': 0}
+        
+        # Pre-flight checks for demo simulation
+        attack_available = len(self.attack_indices) if hasattr(self, 'attack_indices') else 0
+        normal_available = len(self.normal_indices) if hasattr(self, 'normal_indices') else 0
+        
+        logger.info(f"Starting demo simulation with {attack_available} attack samples and {normal_available} normal samples")
+        
+        if attack_available == 0:
+            logger.error("[DEMO ERROR] Cannot start demo - no attack samples available!")
+            logger.error("  - Demo will show only normal traffic or fail")
+            logger.error("  - Check data loading pipeline and sample separation logic")
+        
         self.demo_running = True
         self.demo_thread = threading.Thread(target=self._demo_simulation_loop, daemon=True)
         self.demo_thread.start()
-        logger.info("Demo simulation started")
+        logger.info(f"Demo simulation started with stratified sampling (2 attacks : 1 normal pattern)")
+        logger.info(f"  - Target pattern: Show {attack_available} attacks, {normal_available} normal samples")
     
     def _stop_demo_simulation(self):
         """Stop demo simulation"""
@@ -537,15 +702,64 @@ class WebDashboardServer:
         logger.info("Demo simulation stopped")
     
     def _demo_simulation_loop(self):
-        """Main demo simulation loop"""
+        """Main demo simulation loop with stratified sampling"""
         logger.info("Demo simulation loop started")
         
         while self.demo_running:
             try:
-                # Select random sample
-                sample_idx = np.random.choice(len(self.test_data))
+                # Stratified sampling: alternate between attack and normal traffic
+                if self.demo_alternating:
+                    # Alternate pattern: show attacks more frequently for demo purposes
+                    cycle_position = self.demo_stats['total_shown'] % 3
+                    should_show_attack = cycle_position == 0 or cycle_position == 1
+                    
+                    if should_show_attack:
+                        # Show attack (2 out of every 3 samples)
+                        if len(self.attack_indices) == 0:
+                            logger.warning(f"[DEMO] No attack samples available at cycle {self.demo_stats['total_shown']} - skipping attack, showing normal instead")
+                            # Fallback to normal sample
+                            if len(self.normal_indices) > 0:
+                                sample_idx = np.random.choice(self.normal_indices)
+                                is_attack = False
+                            else:
+                                logger.error("[DEMO] No samples available at all - stopping demo")
+                                break
+                        else:
+                            sample_idx = np.random.choice(self.attack_indices)
+                            is_attack = True
+                            if self.demo_stats['total_shown'] % 10 == 0:  # Log every 10th sample
+                                logger.info(f"[DEMO] Showing attack sample {sample_idx} (cycle {cycle_position})")
+                    else:
+                        # Show normal (1 out of every 3 samples)
+                        if len(self.normal_indices) == 0:
+                            logger.warning(f"[DEMO] No normal samples available at cycle {self.demo_stats['total_shown']} - skipping normal, showing attack instead")
+                            # Fallback to attack sample
+                            if len(self.attack_indices) > 0:
+                                sample_idx = np.random.choice(self.attack_indices)
+                                is_attack = True
+                            else:
+                                logger.error("[DEMO] No samples available at all - stopping demo")
+                                break
+                        else:
+                            sample_idx = np.random.choice(self.normal_indices)
+                            is_attack = False
+                            if self.demo_stats['total_shown'] % 10 == 0:  # Log every 10th sample
+                                logger.info(f"[DEMO] Showing normal sample {sample_idx} (cycle {cycle_position})")
+                else:
+                    # Fallback to random sampling
+                    sample_idx = np.random.choice(len(self.test_data))
+                    is_attack = self.original_test_data.iloc[sample_idx]['label'] == 1
+                
+                # Get the already processed sample (through complete pipeline)
                 sample = self.test_data.iloc[sample_idx].values
                 original_sample = self.original_test_data.iloc[sample_idx]
+                
+                # Update demo statistics
+                self.demo_stats['total_shown'] += 1
+                if is_attack:
+                    self.demo_stats['attacks_shown'] += 1
+                else:
+                    self.demo_stats['normal_shown'] += 1
                 
                 # Get explanation
                 result = self.realtime_explainer.explain_sample_sync(
@@ -559,9 +773,24 @@ class WebDashboardServer:
                     # Add to dashboard
                     self.dashboard_manager.add_detection(result)
                     
+                    # Log demo progress periodically
+                    if self.demo_stats['total_shown'] % 10 == 0:
+                        attacks = self.demo_stats['attacks_shown']
+                        normal = self.demo_stats['normal_shown'] 
+                        total = self.demo_stats['total_shown']
+                        logger.info(f"Demo progress: {total} samples shown ({attacks} attacks, {normal} normal)")
+                    
                     # Broadcast real-time update
                     try:
                         dashboard_data = self.realtime_explainer.format_for_dashboard_streaming(result)
+                        # Add ground truth information for demo
+                        dashboard_data['ground_truth'] = {
+                            'actual_label': int(original_sample['label']),
+                            'is_attack': is_attack,
+                            'attack_category': original_sample.get('attack_cat', 'Normal') if is_attack else 'Normal'
+                        }
+                        dashboard_data['demo_stats'] = self.demo_stats.copy()
+                        
                         asyncio.run(self._broadcast_to_websockets({
                             "type": "detection",
                             "data": dashboard_data
@@ -617,10 +846,10 @@ def main():
     
     args = parser.parse_args()
     
-    # Update server config
-    global dashboard_server
-    dashboard_server = WebDashboardServer(args.env)
-    app = dashboard_server.app
+    # Use the global server instance with the specified environment
+    if args.env != 'development':
+        logger.warning(f"Environment {args.env} specified, but using development config (global instance)")
+        logger.warning("For production deployment, modify the global server creation")
     
     logger.info(f"Starting web dashboard server on {args.host}:{args.port}")
     logger.info(f"Dashboard will be available at: http://{args.host}:{args.port}")

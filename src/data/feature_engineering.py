@@ -292,3 +292,53 @@ class NetworkFeatureEngineer:
             'ttl_diff', 'ttl_ratio', 'total_loss', 'loss_imbalance'
         ]
         return derived_features
+    
+    def save(self, filepath: str) -> None:
+        """
+        Save the feature engineer state to disk.
+        
+        Args:
+            filepath: Path to save the feature engineer
+        """
+        import joblib
+        import os
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        # Save the complete state
+        state = {
+            'feature_selector': self.feature_selector,
+            'pca': self.pca,
+            'selected_features': self.selected_features,
+            'is_fitted': self.is_fitted
+        }
+        
+        joblib.dump(state, filepath)
+        self.logger.info(f"Feature engineer saved to {filepath}")
+    
+    @classmethod
+    def load(cls, filepath: str) -> 'NetworkFeatureEngineer':
+        """
+        Load a feature engineer from disk.
+        
+        Args:
+            filepath: Path to the saved feature engineer
+            
+        Returns:
+            Loaded NetworkFeatureEngineer instance
+        """
+        import joblib
+        
+        # Create new instance
+        feature_engineer = cls()
+        
+        # Load state
+        state = joblib.load(filepath)
+        feature_engineer.feature_selector = state['feature_selector']
+        feature_engineer.pca = state['pca']
+        feature_engineer.selected_features = state['selected_features']
+        feature_engineer.is_fitted = state['is_fitted']
+        
+        feature_engineer.logger.info(f"Feature engineer loaded from {filepath}")
+        return feature_engineer

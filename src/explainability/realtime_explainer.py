@@ -95,7 +95,7 @@ class RealtimeExplainer:
             'shap_background_size': 100,
             'lime_num_samples': 1000,
             'fast_mode': True,  # Use approximations for speed
-            'cache_explanations': True,
+            'cache_explanations': False,  # Disabled to ensure fresh explanations each time
             'max_processing_time_ms': 5000  # Timeout for individual requests
         }
         

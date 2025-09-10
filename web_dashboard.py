@@ -55,7 +55,7 @@ import joblib
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Enable debug logging to see explanation details
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -98,9 +98,16 @@ class WebDashboardServer:
         self.demo_alternating = True  # Alternate between attack and normal
         self.demo_stats = {'attacks_shown': 0, 'normal_shown': 0, 'total_shown': 0}
         
+        # Feature ordering will be set after loading the feature engineer
+        self.expected_feature_order = None
+        
         # Setup routes and static files
         self._setup_routes()
         self._setup_static_files()
+    
+    def _reorder_features_for_model(self, data_df: pd.DataFrame) -> pd.DataFrame:
+        """Features should already be in correct order from the feature engineer"""
+        return data_df
         
     def _setup_static_files(self):
         """Setup static file serving and templates"""
@@ -330,7 +337,9 @@ class WebDashboardServer:
             feature_engineer_path = Path('results/preprocessing/feature_engineer.joblib')
             if feature_engineer_path.exists():
                 self.feature_engineer = NetworkFeatureEngineer.load(str(feature_engineer_path))
-                logger.info("Loaded feature engineer")
+                # Set the expected feature order from the trained feature engineer
+                self.expected_feature_order = self.feature_engineer.selected_features
+                logger.info(f"Loaded feature engineer with {len(self.expected_feature_order)} features")
             else:
                 # If not found, create a new one and initialize it to match the existing preprocessor
                 logger.warning("Feature engineer not found, creating new one...")
@@ -355,6 +364,9 @@ class WebDashboardServer:
                         # If no labels, just create derived features
                         self.feature_engineer.selected_features = enhanced_sample.columns.tolist()
                         logger.info("Initialized feature engineer without feature selection (no labels)")
+                    
+                    # Set the expected feature order from the created feature engineer
+                    self.expected_feature_order = self.feature_engineer.selected_features
                     
                     # Save for future use
                     feature_engineer_path.parent.mkdir(exist_ok=True, parents=True)
@@ -467,6 +479,7 @@ class WebDashboardServer:
             step1_preprocessed = self.preprocessor.transform(self.original_test_data)
             step2_engineered = self.feature_engineer.transform_new_data(step1_preprocessed)
             
+            # The feature engineer should already produce the correct feature set
             self.test_data = step2_engineered
             
             # Separate attack and normal samples for demo
@@ -540,12 +553,10 @@ class WebDashboardServer:
         logger.info("Initializing real-time explainer...")
         
         try:
-            # Get background data (already processed through complete pipeline)
+            # Get background data (already processed and ordered correctly in _load_test_data)
             background_sample = self.test_data[:100]
             background_data = background_sample.values
-            
-            # Use feature engineer's selected feature names
-            feature_names = self.feature_engineer.selected_features
+            feature_names = self.expected_feature_order
             
             # Validate feature consistency
             model_features = self.model.model.n_features_in_
@@ -555,17 +566,11 @@ class WebDashboardServer:
             logger.info(f"  Model expects: {model_features} features")
             logger.info(f"  Background data has: {data_features} features")
             logger.info(f"  Feature names: {len(feature_names)} features")
+            logger.info(f"  ✓ Features reordered to match model's expected order")
             
             if model_features != data_features:
-                logger.warning(f"Feature count mismatch: model={model_features}, data={data_features}")
-                # Try to proceed with available features
-                if data_features < model_features:
-                    logger.error("Background data has fewer features than model expects!")
-                    return False
-                else:
-                    # Trim background data to match model
-                    background_data = background_data[:, :model_features]
-                    logger.info(f"Trimmed background data to {model_features} features")
+                logger.error(f"Feature count mismatch after reordering: model={model_features}, data={data_features}")
+                return False
             
             # Initialize explainer with available data
             self.realtime_explainer = RealtimeExplainer(
@@ -702,57 +707,61 @@ class WebDashboardServer:
         logger.info("Demo simulation stopped")
     
     def _demo_simulation_loop(self):
-        """Main demo simulation loop with stratified sampling"""
-        logger.info("Demo simulation loop started")
+        """Demo simulation with alternating attack/normal pattern (2:1 ratio)"""
+        logger.info("Demo simulation loop started - Alternating pattern (2 attacks : 1 normal)")
+        
+        # Extensive debug logging at startup
+        logger.info(f"[DEBUG] Available attack indices: {len(self.attack_indices) if hasattr(self, 'attack_indices') else 0}")
+        logger.info(f"[DEBUG] Available normal indices: {len(self.normal_indices) if hasattr(self, 'normal_indices') else 0}")
+        logger.info(f"[DEBUG] Attack samples shape: {self.attack_samples.shape if hasattr(self, 'attack_samples') and self.attack_samples is not None else 'None'}")
+        logger.info(f"[DEBUG] Normal samples shape: {self.normal_samples.shape if hasattr(self, 'normal_samples') and self.normal_samples is not None else 'None'}")
+        
+        # Pattern counter for alternating (2 attacks, then 1 normal)
+        pattern_counter = 0
         
         while self.demo_running:
             try:
-                # Stratified sampling: alternate between attack and normal traffic
-                if self.demo_alternating:
-                    # Alternate pattern: show attacks more frequently for demo purposes
-                    cycle_position = self.demo_stats['total_shown'] % 3
-                    should_show_attack = cycle_position == 0 or cycle_position == 1
-                    
-                    if should_show_attack:
-                        # Show attack (2 out of every 3 samples)
-                        if len(self.attack_indices) == 0:
-                            logger.warning(f"[DEMO] No attack samples available at cycle {self.demo_stats['total_shown']} - skipping attack, showing normal instead")
-                            # Fallback to normal sample
-                            if len(self.normal_indices) > 0:
-                                sample_idx = np.random.choice(self.normal_indices)
-                                is_attack = False
-                            else:
-                                logger.error("[DEMO] No samples available at all - stopping demo")
-                                break
-                        else:
-                            sample_idx = np.random.choice(self.attack_indices)
-                            is_attack = True
-                            if self.demo_stats['total_shown'] % 10 == 0:  # Log every 10th sample
-                                logger.info(f"[DEMO] Showing attack sample {sample_idx} (cycle {cycle_position})")
-                    else:
-                        # Show normal (1 out of every 3 samples)
-                        if len(self.normal_indices) == 0:
-                            logger.warning(f"[DEMO] No normal samples available at cycle {self.demo_stats['total_shown']} - skipping normal, showing attack instead")
-                            # Fallback to attack sample
-                            if len(self.attack_indices) > 0:
-                                sample_idx = np.random.choice(self.attack_indices)
-                                is_attack = True
-                            else:
-                                logger.error("[DEMO] No samples available at all - stopping demo")
-                                break
-                        else:
-                            sample_idx = np.random.choice(self.normal_indices)
-                            is_attack = False
-                            if self.demo_stats['total_shown'] % 10 == 0:  # Log every 10th sample
-                                logger.info(f"[DEMO] Showing normal sample {sample_idx} (cycle {cycle_position})")
-                else:
-                    # Fallback to random sampling
-                    sample_idx = np.random.choice(len(self.test_data))
-                    is_attack = self.original_test_data.iloc[sample_idx]['label'] == 1
+                # Determine sample type based on alternating pattern
+                if pattern_counter % 3 < 2:  # First two in pattern are attacks
+                    sample_type = "attack"
+                else:  # Third in pattern is normal
+                    sample_type = "normal"
                 
-                # Get the already processed sample (through complete pipeline)
+                pattern_counter += 1
+                
+                # Select sample based on type
+                if sample_type == "attack" and len(self.attack_indices) > 0:
+                    sample_idx = np.random.choice(self.attack_indices)
+                    is_attack = True
+                elif sample_type == "normal" and len(self.normal_indices) > 0:
+                    sample_idx = np.random.choice(self.normal_indices)
+                    is_attack = False
+                else:
+                    # Fallback if requested type not available
+                    if len(self.attack_indices) > 0:
+                        sample_idx = np.random.choice(self.attack_indices)
+                        is_attack = True
+                        logger.warning(f"[DEBUG] Fallback to attack sample (requested {sample_type} not available)")
+                    elif len(self.normal_indices) > 0:
+                        sample_idx = np.random.choice(self.normal_indices)
+                        is_attack = False
+                        logger.warning(f"[DEBUG] Fallback to normal sample (requested {sample_type} not available)")
+                    else:
+                        logger.error("[CRITICAL] No samples available - STOPPING DEMO")
+                        break
+                
+                logger.info(f"[DEBUG] Selected {sample_type} sample {sample_idx} (total shown: {self.demo_stats['total_shown']})")
+                
+                # Get the already processed sample (already in correct order from _load_test_data)
                 sample = self.test_data.iloc[sample_idx].values
                 original_sample = self.original_test_data.iloc[sample_idx]
+                
+                # EXTENSIVE DEBUG LOGGING
+                logger.info(f"[DEBUG] Sample {sample_idx} details:")
+                logger.info(f"[DEBUG]   - Processed sample shape: {sample.shape}")
+                logger.info(f"[DEBUG]   - Original label: {original_sample.get('label', 'NOT FOUND')}")
+                logger.info(f"[DEBUG]   - is_attack flag: {is_attack}")
+                logger.info(f"[DEBUG]   - Sample values (first 10): {sample[:10]}")
                 
                 # Update demo statistics
                 self.demo_stats['total_shown'] += 1
@@ -762,45 +771,72 @@ class WebDashboardServer:
                     self.demo_stats['normal_shown'] += 1
                 
                 # Get explanation
+                sample_id = f"debug_attack_{int(time.time()*1000)}"
+                logger.info(f"[DEBUG] Requesting explanation for sample {sample_id}")
+                
                 result = self.realtime_explainer.explain_sample_sync(
                     sample=sample,
-                    sample_id=f"demo_{int(time.time()*1000)}",
+                    sample_id=sample_id,
                     methods=["shap"],
                     timeout=10.0  # Increased timeout for web dashboard
                 )
                 
+                logger.info(f"[DEBUG] Explanation result:")
+                logger.info(f"[DEBUG]   - Success: {result.success}")
                 if result.success and result.explanation:
+                    logger.info(f"[DEBUG]   - Prediction: {result.explanation.prediction}")
+                    logger.info(f"[DEBUG]   - Prediction proba: {result.explanation.prediction_proba}")
+                    logger.info(f"[DEBUG]   - Confidence: {result.explanation.confidence_score}")
+                    logger.info(f"[DEBUG]   - Risk level: {result.explanation.risk_level}")
+                else:
+                    logger.error(f"[DEBUG]   - Error: {getattr(result, 'error', 'Unknown error')}")
+                
+                if result.success and result.explanation:
+                    logger.info(f"[DEBUG] Adding detection to dashboard manager...")
                     # Add to dashboard
                     self.dashboard_manager.add_detection(result)
                     
-                    # Log demo progress periodically
-                    if self.demo_stats['total_shown'] % 10 == 0:
-                        attacks = self.demo_stats['attacks_shown']
-                        normal = self.demo_stats['normal_shown'] 
-                        total = self.demo_stats['total_shown']
-                        logger.info(f"Demo progress: {total} samples shown ({attacks} attacks, {normal} normal)")
+                    # Log demo progress for every sample (not just every 10th)
+                    attacks = self.demo_stats['attacks_shown']
+                    normal = self.demo_stats['normal_shown'] 
+                    total = self.demo_stats['total_shown']
+                    logger.info(f"[DEBUG] Demo progress: {total} samples shown ({attacks} attacks, {normal} normal)")
                     
                     # Broadcast real-time update
                     try:
+                        logger.info(f"[DEBUG] Formatting dashboard data...")
                         dashboard_data = self.realtime_explainer.format_for_dashboard_streaming(result)
+                        
                         # Add ground truth information for demo
                         dashboard_data['ground_truth'] = {
                             'actual_label': int(original_sample['label']),
-                            'is_attack': is_attack,
-                            'attack_category': original_sample.get('attack_cat', 'Normal') if is_attack else 'Normal'
+                            'is_attack': is_attack
                         }
                         dashboard_data['demo_stats'] = self.demo_stats.copy()
                         
+                        logger.info(f"[DEBUG] Dashboard data prepared:")
+                        logger.info(f"[DEBUG]   - Type: {dashboard_data.get('type', 'NOT SET')}")
+                        logger.info(f"[DEBUG]   - Status: {dashboard_data.get('status', 'NOT SET')}")
+                        logger.info(f"[DEBUG]   - Ground truth label: {dashboard_data['ground_truth']['actual_label']}")
+                        logger.info(f"[DEBUG]   - Ground truth attack: {dashboard_data['ground_truth']['is_attack']}")
+                        
+                        logger.info(f"[DEBUG] Broadcasting to WebSocket clients...")
                         asyncio.run(self._broadcast_to_websockets({
                             "type": "detection",
                             "data": dashboard_data
                         }))
+                        logger.info(f"[DEBUG] WebSocket broadcast completed")
+                        
                     except Exception as broadcast_error:
-                        logger.warning(f"Failed to broadcast update: {broadcast_error}")
+                        logger.error(f"[DEBUG] Failed to broadcast update: {broadcast_error}")
+                        import traceback
+                        logger.error(f"[DEBUG] Traceback: {traceback.format_exc()}")
                 else:
-                    logger.warning(f"Failed to get explanation for sample {sample_idx}: {result.error_message if hasattr(result, 'error_message') else 'Unknown error'}")
+                    logger.error(f"[DEBUG] FAILED to get explanation for sample {sample_idx}")
+                    logger.error(f"[DEBUG] Error: {getattr(result, 'error_message', getattr(result, 'error', 'Unknown error'))}")
                 
                 # Wait before next sample
+                logger.info(f"[DEBUG] Waiting 2 seconds before next sample...")
                 time.sleep(2)  # 2 seconds between samples
                 
             except Exception as e:

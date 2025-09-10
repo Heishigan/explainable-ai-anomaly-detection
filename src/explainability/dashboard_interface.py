@@ -33,7 +33,6 @@ class DashboardAlert:
     title: str
     message: str
     sample_id: Optional[str] = None
-    attack_type: Optional[str] = None
     confidence: Optional[float] = None
     auto_dismiss: bool = False
     dismiss_after_seconds: int = 30
@@ -64,7 +63,6 @@ class DashboardDetection:
     probability: float
     confidence: float
     risk_level: str
-    attack_type: Optional[str]
     processing_time_ms: float
     
     # Explanation summary
@@ -131,11 +129,10 @@ class DashboardDataManager:
         detection = DashboardDetection(
             id=explanation_result.sample_id,
             timestamp=explanation.timestamp,
-            prediction="Attack" if explanation.prediction == 1 else "Normal",
+            prediction="Attack" if float(explanation.prediction) >= 0.5 else "Normal",
             probability=explanation.prediction_proba or 0.0,
             confidence=explanation.confidence_score or 0.0,
             risk_level=explanation.risk_level or "unknown",
-            attack_type=explanation.predicted_attack_type,
             processing_time_ms=explanation_result.processing_time_ms or 0.0,
             top_features=self._extract_top_features(explanation),
             explanation_methods=explanation_result.methods_used or [],
@@ -153,7 +150,6 @@ class DashboardDataManager:
                 'probability': detection.probability,
                 'confidence': detection.confidence,
                 'risk_level': detection.risk_level,
-                'attack_type': detection.attack_type,
                 'processing_time_ms': detection.processing_time_ms
             })
             
@@ -163,11 +159,6 @@ class DashboardDataManager:
                 self.metrics.attacks_detected += 1
             else:
                 self.metrics.normal_traffic += 1
-            
-            # Update attack type distribution
-            if detection.attack_type:
-                self.metrics.attack_type_distribution[detection.attack_type] = \
-                    self.metrics.attack_type_distribution.get(detection.attack_type, 0) + 1
             
             # Update confidence distribution
             confidence_bucket = self._get_confidence_bucket(detection.confidence)
@@ -281,16 +272,11 @@ class DashboardDataManager:
         if not recent_attacks:
             return {'message': 'No recent attacks detected'}
         
-        # Attack type analysis
-        attack_types = {}
+        # Risk and confidence analysis
         risk_levels = {'low': 0, 'medium': 0, 'high': 0, 'critical': 0}
         confidence_sum = 0
         
         for attack in recent_attacks:
-            # Attack type distribution
-            attack_type = attack.attack_type or 'unknown'
-            attack_types[attack_type] = attack_types.get(attack_type, 0) + 1
-            
             # Risk level distribution
             if attack.risk_level in risk_levels:
                 risk_levels[attack.risk_level] += 1
@@ -301,10 +287,8 @@ class DashboardDataManager:
         
         return {
             'total_recent_attacks': len(recent_attacks),
-            'attack_type_distribution': attack_types,
             'risk_level_distribution': risk_levels,
-            'average_confidence': avg_confidence,
-            'top_attack_types': sorted(attack_types.items(), key=lambda x: x[1], reverse=True)[:5]
+            'average_confidence': avg_confidence
         }
     
     def subscribe_to_updates(self, callback: Callable[[str, Any], None]):
@@ -387,9 +371,8 @@ class DashboardDataManager:
             timestamp=detection.timestamp,
             level=alert_level,
             title=f"{detection.risk_level.title()} Risk Attack Detected",
-            message=f"Detected {detection.attack_type or 'unknown'} attack with {detection.confidence:.1%} confidence",
+            message=f"Detected attack with {detection.confidence:.1%} confidence",
             sample_id=detection.id,
-            attack_type=detection.attack_type,
             confidence=detection.confidence,
             auto_dismiss=auto_dismiss,
             dismiss_after_seconds=dismiss_time
@@ -430,8 +413,6 @@ class DashboardDataManager:
         if 'risk_level' in filters:
             filtered = [d for d in filtered if d.risk_level == filters['risk_level']]
         
-        if 'attack_type' in filters:
-            filtered = [d for d in filtered if d.attack_type == filters['attack_type']]
         
         if 'min_confidence' in filters:
             filtered = [d for d in filtered if d.confidence >= filters['min_confidence']]

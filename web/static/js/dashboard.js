@@ -26,6 +26,7 @@ class ExplainableAIDashboard {
         this.bucketIntervalMs = 30000; // 30 seconds per bucket
         this.maxBuckets = 20; // Keep last 20 buckets
         
+        
         this.init();
     }
     
@@ -157,6 +158,7 @@ class ExplainableAIDashboard {
         
         // Update charts
         this.updateChartsWithDetection(detection);
+        
     }
     
     addDetectionToFeed(detection) {
@@ -202,10 +204,11 @@ class ExplainableAIDashboard {
     }
     
     createDetectionElement(detection) {
-        const isAttack = detection.status === 'success' && detection.prediction === 1;
-        const confidence = detection.confidence || 0;
+        const isAttack = detection.status === 'success' && detection.type === 'attack';
+        const confidence = detection.prediction_summary?.confidence || detection.confidence || 0;
         const processingTime = detection.processing_time_ms || 0;
         const timestamp = new Date();
+        const riskLevel = detection.prediction_summary?.risk_level || detection.risk_level || 'unknown';
         
         const element = document.createElement('div');
         element.className = `detection-item ${isAttack ? 'attack' : 'normal'}`;
@@ -220,8 +223,8 @@ class ExplainableAIDashboard {
                     <span class="detection-type ${isAttack ? 'attack' : 'normal'}">
                         ${isAttack ? '🚨 ATTACK DETECTED' : '✅ NORMAL TRAFFIC'}
                     </span>
-                    <span class="detection-risk-badge ${this.getRiskClass(detection)}">
-                        ${this.formatRiskLevel(detection.risk_level || 'unknown')}
+                    <span class="detection-risk-badge ${this.getRiskClass({risk_level: riskLevel})}">
+                        ${this.formatRiskLevel(riskLevel)}
                     </span>
                 </div>
                 <span class="detection-time" title="${timestamp.toLocaleString()}">
@@ -232,7 +235,6 @@ class ExplainableAIDashboard {
                 <span class="detail-item">Confidence: ${(confidence * 100).toFixed(1)}%</span>
                 <span class="detail-item">Processing: ${processingTime.toFixed(1)}ms</span>
                 <span class="detail-item">Sample: ${(detection.sample_id || 'N/A').substring(0, 8)}...</span>
-                ${detection.attack_type ? `<span class="detail-item attack-type">Type: ${detection.attack_type}</span>` : ''}
             </div>
             <div class="confidence-bar">
                 <div class="confidence-fill ${this.getConfidenceClass(confidence)}" 
@@ -277,8 +279,12 @@ class ExplainableAIDashboard {
     }
     
     createExpandedDetails(detection) {
-        const features = detection.top_features || [];
-        const methods = detection.explanation_methods || [];
+        const features = detection.consensus_analysis?.top_consensus_features || detection.top_features || [];
+        const methods = detection.methods_used || detection.explanation_methods || [];
+        const shapFeatures = detection.individual_explanations?.shap?.top_features || [];
+        
+        // Use the best available feature set
+        const displayFeatures = features.length > 0 ? features : shapFeatures;
         
         return `
             <div class="expanded-content">
@@ -288,21 +294,21 @@ class ExplainableAIDashboard {
                         <p>${methods.join(', ')}</p>
                     </div>
                 ` : ''}
-                ${features.length > 0 ? `
+                ${displayFeatures.length > 0 ? `
                     <div class="expanded-section">
                         <h5>Key Features:</h5>
                         <div class="mini-features">
-                            ${features.slice(0, 3).map(f => `
+                            ${displayFeatures.slice(0, 3).map(f => `
                                 <div class="mini-feature">
                                     <span class="feature-name">${f.name || f.feature}</span>
-                                    <span class="feature-value">${(f.importance || 0).toFixed(3)}</span>
+                                    <span class="feature-value">${(f.importance || f.avg_importance || 0).toFixed(3)}</span>
                                 </div>
                             `).join('')}
                         </div>
                     </div>
                 ` : ''}
                 <div class="expanded-actions">
-                    <button class="detail-btn" onclick="navigator.clipboard.writeText('${detection.id || ''}')">
+                    <button class="detail-btn" onclick="navigator.clipboard.writeText('${detection.sample_id || ''}')">
                         📋 Copy ID
                     </button>
                 </div>
@@ -335,7 +341,7 @@ class ExplainableAIDashboard {
         const metaElement = document.getElementById('explanationMeta');
         const contentElement = document.getElementById('explanationContent');
         
-        if (detection.status !== 'success' || !detection.top_features) {
+        if (detection.status !== 'success') {
             return;
         }
         
@@ -344,24 +350,37 @@ class ExplainableAIDashboard {
         const methods = detection.methods_used || ['SHAP'];
         metaElement.textContent = `${timestamp} | Methods: ${methods.join(', ')}`;
         
-        // Update feature importance
-        const features = detection.top_features || [];
+        // Get features from consensus analysis or SHAP explanation
+        const consensusFeatures = detection.consensus_analysis?.top_consensus_features || [];
+        const shapFeatures = detection.individual_explanations?.shap?.top_features || [];
+        const features = consensusFeatures.length > 0 ? consensusFeatures : shapFeatures;
+        
         if (features.length > 0) {
             contentElement.innerHTML = `
                 <div class="feature-importance">
                     <h4 style="color: #00d4ff; margin-bottom: 1rem;">Top Contributing Features</h4>
-                    ${features.slice(0, 5).map(feature => `
+                    ${features.slice(0, 5).map(feature => {
+                        const importance = feature.importance || feature.avg_importance || feature.abs_importance || 0;
+                        return `
                         <div class="feature-item">
                             <span class="feature-name">${feature.name || feature.feature}</span>
                             <div class="feature-value">
                                 <div class="feature-bar">
-                                    <div class="feature-bar-fill ${feature.importance > 0 ? 'positive' : 'negative'}"
-                                         style="width: ${Math.abs(feature.importance) * 100}%"></div>
+                                    <div class="feature-bar-fill ${importance > 0 ? 'positive' : 'negative'}"
+                                         style="width: ${Math.abs(importance) * 100}%"></div>
                                 </div>
-                                <span class="feature-score">${(feature.importance || 0).toFixed(3)}</span>
+                                <span class="feature-score">${importance.toFixed(3)}</span>
                             </div>
                         </div>
-                    `).join('')}
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        } else {
+            contentElement.innerHTML = `
+                <div class="feature-importance">
+                    <h4 style="color: #00d4ff; margin-bottom: 1rem;">Explanation Available</h4>
+                    <p>Detection processed successfully but features not available for display.</p>
                 </div>
             `;
         }
@@ -370,7 +389,7 @@ class ExplainableAIDashboard {
     updateMetricsFromDetection(detection) {
         this.metricsData.totalSamples++;
         
-        if (detection.status === 'success' && detection.prediction === 1) {
+        if (detection.status === 'success' && detection.type === 'attack') {
             this.metricsData.attacksDetected++;
         } else if (detection.status === 'success') {
             this.metricsData.normalDetected++;
@@ -486,37 +505,6 @@ class ExplainableAIDashboard {
             }
         });
         
-        // Attack Types Chart
-        const attackTypesCtx = document.getElementById('attackTypesChart').getContext('2d');
-        this.charts.attackTypes = new Chart(attackTypesCtx, {
-            type: 'doughnut',
-            data: {
-                labels: [],
-                datasets: [{
-                    data: [],
-                    backgroundColor: [
-                        '#ff4444', '#ff6666', '#ff8888', '#ffaaaa',
-                        '#00ff88', '#22ffaa', '#44ffcc', '#66ffee'
-                    ],
-                    borderColor: '#1a1a3e',
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { 
-                            color: '#ffffff',
-                            padding: 15,
-                            usePointStyle: true
-                        }
-                    }
-                }
-            }
-        });
     }
     
     updateChartsWithDetection(detection) {
@@ -531,7 +519,7 @@ class ExplainableAIDashboard {
         
         // Update bucket counts
         const bucket = this.timeBuckets.get(bucketTime);
-        if (detection.status === 'success' && detection.prediction === 1) {
+        if (detection.status === 'success' && detection.type === 'attack') {
             bucket.attacks++;
         } else if (detection.status === 'success') {
             bucket.normal++;
@@ -787,6 +775,7 @@ class ExplainableAIDashboard {
         // Update chart with new data
         this.updateTimelineChart();
     }
+    
 }
 
 // Initialize dashboard when DOM is loaded

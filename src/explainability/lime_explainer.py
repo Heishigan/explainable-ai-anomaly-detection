@@ -100,18 +100,31 @@ class LimeExplainer:
             sample = sample.flatten()
         
         try:
-            # Get original prediction
-            prediction = model.predict([sample])[0]
-            prediction_proba = None
+            # Convert numpy array to DataFrame with proper feature names for model prediction
+            sample_df = pd.DataFrame([sample], columns=self.feature_names)
             
+            # Get original prediction - USE PROBABILITIES FOR DASHBOARD COMPATIBILITY
             if hasattr(model, 'predict_proba'):
-                proba = model.predict_proba([sample])[0]
+                proba = model.predict_proba(sample_df)[0]
+                prediction = float(proba[1])  # Use attack probability as prediction
                 prediction_proba = proba[1]  # Attack probability
+            else:
+                prediction = float(model.predict(sample_df)[0])
+                prediction_proba = None
+            
+            # Create wrapper function for model prediction that handles feature names
+            def model_predict_proba_wrapper(samples):
+                """Wrapper to convert numpy arrays to DataFrames with proper feature names"""
+                if isinstance(samples, np.ndarray):
+                    samples_df = pd.DataFrame(samples, columns=self.feature_names)
+                else:
+                    samples_df = samples
+                return model.predict_proba(samples_df)
             
             # Generate LIME explanation
             explanation = self.explainer.explain_instance(
                 sample, 
-                model.predict_proba,
+                model_predict_proba_wrapper,
                 num_features=num_features,
                 num_samples=num_samples,
                 labels=[1]  # Explain attack class
@@ -331,7 +344,7 @@ class LimeExplainer:
         
         return {
             "prediction": {
-                "label": "Attack" if explanation.prediction == 1 else "Normal",
+                "label": "Attack" if float(explanation.prediction) == 1.0 else "Normal",
                 "probability": explanation.prediction_proba,
                 "local_prediction": explanation.local_prediction,
                 "confidence": abs(explanation.prediction_proba - 0.5) * 2 if explanation.prediction_proba else None

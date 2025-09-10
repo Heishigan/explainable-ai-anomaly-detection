@@ -103,13 +103,22 @@ class ShapExplainer:
             sample = sample.reshape(1, -1)
             
         try:
-            # Get prediction
-            prediction = self.model.predict(sample)[0]
-            prediction_proba = None
+            # Convert numpy array to DataFrame with proper feature names for model prediction
+            if isinstance(sample, np.ndarray) and sample.ndim == 1:
+                sample_df = pd.DataFrame([sample], columns=self.feature_names)
+            elif isinstance(sample, np.ndarray) and sample.ndim == 2:
+                sample_df = pd.DataFrame(sample, columns=self.feature_names)
+            else:
+                sample_df = sample  # Already a DataFrame
             
-            if return_probabilities and hasattr(self.model, 'predict_proba'):
-                proba = self.model.predict_proba(sample)[0]
+            # Get prediction - USE PROBABILITIES FOR DASHBOARD COMPATIBILITY
+            if hasattr(self.model, 'predict_proba'):
+                proba = self.model.predict_proba(sample_df)[0]
+                prediction = float(proba[1])  # Use attack probability as prediction
                 prediction_proba = proba[1]  # Probability of attack class
+            else:
+                prediction = float(self.model.predict(sample_df)[0])
+                prediction_proba = None
             
             # Get SHAP values
             if self.explainer_type == "tree":
@@ -128,6 +137,12 @@ class ShapExplainer:
             
             # Calculate confidence score
             confidence_score = self._calculate_confidence_score(shap_values, prediction_proba)
+            
+            # Debug logging for SHAP values
+            self.logger.debug(f"SHAP explanation generated:")
+            self.logger.debug(f"  - Prediction: {prediction}")
+            self.logger.debug(f"  - Prediction proba: {prediction_proba}")
+            self.logger.debug(f"  - Top 5 SHAP values: {sorted(zip(self.feature_names, shap_values.flatten()), key=lambda x: abs(x[1]), reverse=True)[:5]}")
             
             return ShapExplanation(
                 prediction=float(prediction),
@@ -272,7 +287,7 @@ class ShapExplainer:
         
         return {
             "prediction": {
-                "label": "Attack" if explanation.prediction == 1 else "Normal",
+                "label": "Attack" if float(explanation.prediction) == 1.0 else "Normal",
                 "probability": explanation.prediction_proba,
                 "confidence": explanation.confidence_score
             },

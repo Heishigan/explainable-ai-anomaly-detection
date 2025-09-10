@@ -30,8 +30,7 @@ class AggregatedExplanation:
     confidence_score: Optional[float] = None
     explanation_agreement: Optional[float] = None
     
-    # Attack categorization
-    predicted_attack_type: Optional[str] = None
+    # Risk assessment
     risk_level: Optional[str] = None
 
 class ExplanationAggregator:
@@ -47,8 +46,6 @@ class ExplanationAggregator:
         self.feature_names = feature_names
         self.logger = logging.getLogger(__name__)
         
-        # Attack type mapping based on feature patterns
-        self.attack_patterns = self._define_attack_patterns()
         
         # Risk level thresholds
         self.risk_thresholds = {
@@ -58,46 +55,6 @@ class ExplanationAggregator:
             'critical': 0.95
         }
     
-    def _define_attack_patterns(self) -> Dict[str, Dict[str, Any]]:
-        """Define feature patterns that indicate specific attack types"""
-        return {
-            "dos_attack": {
-                "indicators": ["sload", "dload", "spkts", "dpkts", "dur"],
-                "patterns": {
-                    "high_load": lambda vals: vals.get("sload", 0) > 1000 or vals.get("dload", 0) > 1000,
-                    "many_packets": lambda vals: vals.get("spkts", 0) > 100 or vals.get("dpkts", 0) > 100,
-                    "short_duration": lambda vals: vals.get("dur", 0) < 1.0
-                },
-                "description": "Denial of Service attack - overwhelming target with traffic"
-            },
-            "reconnaissance": {
-                "indicators": ["ct_srv_src", "ct_srv_dst", "ct_state_ttl", "spkts"],
-                "patterns": {
-                    "port_scanning": lambda vals: vals.get("ct_srv_src", 0) > 10 or vals.get("ct_srv_dst", 0) > 10,
-                    "state_probing": lambda vals: vals.get("ct_state_ttl", 0) > 5,
-                    "small_packets": lambda vals: vals.get("spkts", 0) < 10 and vals.get("dpkts", 0) < 5
-                },
-                "description": "Network reconnaissance - scanning for vulnerabilities"
-            },
-            "data_exfiltration": {
-                "indicators": ["sbytes", "dbytes", "dur", "sload"],
-                "patterns": {
-                    "large_outbound": lambda vals: vals.get("sbytes", 0) > 50000,
-                    "sustained_connection": lambda vals: vals.get("dur", 0) > 60,
-                    "steady_load": lambda vals: vals.get("sload", 0) > 100 and vals.get("sload", 0) < 1000
-                },
-                "description": "Data exfiltration - unauthorized data transfer"
-            },
-            "exploit_attempt": {
-                "indicators": ["dbytes", "dpkts", "service", "state"],
-                "patterns": {
-                    "large_inbound": lambda vals: vals.get("dbytes", 0) > 10000,
-                    "many_response_packets": lambda vals: vals.get("dpkts", 0) > 50,
-                    "connection_established": lambda vals: vals.get("state", "") in ["CON", "EST"]
-                },
-                "description": "Exploit attempt - trying to compromise system vulnerability"
-            }
-        }
     
     def aggregate_explanations(self, shap_explanation: Optional[ShapExplanation] = None,
                              lime_explanation: Optional[LimeExplanation] = None,
@@ -140,8 +97,7 @@ class ExplanationAggregator:
         # Calculate overall confidence
         confidence = self._calculate_overall_confidence(shap_explanation, lime_explanation)
         
-        # Predict attack type and risk level
-        attack_type = self._predict_attack_type(shap_explanation, lime_explanation)
+        # Determine risk level
         risk_level = self._determine_risk_level(prediction_proba, confidence)
         
         return AggregatedExplanation(
@@ -154,7 +110,6 @@ class ExplanationAggregator:
             consensus_features=consensus_features,
             confidence_score=confidence,
             explanation_agreement=agreement_score,
-            predicted_attack_type=attack_type,
             risk_level=risk_level
         )
     
@@ -294,42 +249,6 @@ class ExplanationAggregator:
         
         return min(1.0, base_confidence)
     
-    def _predict_attack_type(self, shap_exp: Optional[ShapExplanation], 
-                           lime_exp: Optional[LimeExplanation]) -> Optional[str]:
-        """Predict attack type based on feature patterns"""
-        if not shap_exp and not lime_exp:
-            return None
-        
-        # Get feature values
-        if shap_exp:
-            feature_values = dict(zip(self.feature_names, shap_exp.feature_values))
-        else:
-            feature_values = dict(zip(self.feature_names, lime_exp.feature_values))
-        
-        # Check each attack pattern
-        attack_scores = {}
-        for attack_type, pattern_def in self.attack_patterns.items():
-            score = 0
-            total_patterns = len(pattern_def["patterns"])
-            
-            for pattern_name, pattern_func in pattern_def["patterns"].items():
-                try:
-                    if pattern_func(feature_values):
-                        score += 1
-                except Exception:
-                    continue
-            
-            # Normalize score
-            if total_patterns > 0:
-                attack_scores[attack_type] = score / total_patterns
-        
-        # Return attack type with highest score (minimum threshold of 0.5)
-        if attack_scores:
-            best_attack = max(attack_scores.items(), key=lambda x: x[1])
-            if best_attack[1] >= 0.5:
-                return best_attack[0]
-        
-        return "unknown_attack" if shap_exp and shap_exp.prediction == 1 else None
     
     def _determine_risk_level(self, prediction_proba: float, confidence: float) -> str:
         """Determine risk level based on prediction probability and confidence"""
@@ -352,13 +271,15 @@ class ExplanationAggregator:
     
     def format_for_dashboard(self, aggregated_explanation: AggregatedExplanation) -> Dict[str, Any]:
         """Format aggregated explanation for dashboard display"""
+        is_attack = float(aggregated_explanation.prediction) >= 0.5
+        
         return {
+            "type": "attack" if is_attack else "normal",  # Add type field for frontend
             "prediction_summary": {
-                "label": "Attack" if aggregated_explanation.prediction == 1 else "Normal",
+                "label": "Attack" if is_attack else "Normal",
                 "probability": aggregated_explanation.prediction_proba,
                 "confidence": aggregated_explanation.confidence_score,
                 "risk_level": aggregated_explanation.risk_level,
-                "predicted_attack_type": aggregated_explanation.predicted_attack_type,
                 "timestamp": aggregated_explanation.timestamp
             },
             "explanation_methods": {
@@ -374,10 +295,9 @@ class ExplanationAggregator:
                 "shap": aggregated_explanation.shap_explanation,
                 "lime": aggregated_explanation.lime_explanation
             },
-            "attack_analysis": {
-                "type": aggregated_explanation.predicted_attack_type,
-                "description": self.attack_patterns.get(aggregated_explanation.predicted_attack_type or "", {}).get("description", "Unknown attack pattern"),
-                "risk_assessment": self._get_risk_description(aggregated_explanation.risk_level)
+            "risk_assessment": {
+                "level": aggregated_explanation.risk_level,
+                "description": self._get_risk_description(aggregated_explanation.risk_level)
             }
         }
     

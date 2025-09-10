@@ -232,7 +232,7 @@ class DashboardDataManager:
         }
     
     def get_time_series_data(self, hours: int = 24) -> Dict[str, Any]:
-        """Get time-series data for dashboard charts"""
+        """Get time-series data for dashboard charts with adaptive intervals"""
         cutoff_time = datetime.now() - timedelta(hours=hours)
         
         with self.lock:
@@ -242,14 +242,32 @@ class DashboardDataManager:
                 if datetime.fromisoformat(entry['timestamp']) > cutoff_time
             ]
         
-        # Group by time intervals
-        interval_minutes = max(1, hours * 60 // 100)  # Max 100 data points
+        # Adaptive interval calculation based on time range
+        if hours <= 1:
+            interval_minutes = 2  # 2-minute intervals for 1 hour (30 points)
+            max_points = 30
+        elif hours <= 6:
+            interval_minutes = 15  # 15-minute intervals for 6 hours (24 points)
+            max_points = 24
+        elif hours <= 24:
+            interval_minutes = 30  # 30-minute intervals for 24 hours (48 points)
+            max_points = 48
+        else:
+            interval_minutes = 60  # 1-hour intervals for longer periods
+            max_points = min(48, hours)
+        
         time_series = self._group_by_time_interval(filtered_history, interval_minutes)
+        
+        # Additional processing for consistency
+        if not time_series:
+            time_series = self._generate_empty_timeline(interval_minutes, max_points)
         
         return {
             'detection_timeline': time_series,
             'interval_minutes': interval_minutes,
-            'total_samples': len(filtered_history)
+            'total_samples': len(filtered_history),
+            'time_range_hours': hours,
+            'data_points': len(time_series)
         }
     
     def get_attack_analytics(self) -> Dict[str, Any]:
@@ -427,52 +445,86 @@ class DashboardDataManager:
         return filtered
     
     def _group_by_time_interval(self, history: List[Dict], interval_minutes: int) -> List[Dict]:
-        """Group historical data by time intervals"""
+        """Group historical data by time intervals with continuous timeline"""
         if not history:
-            return []
+            # Return empty timeline with current time buckets
+            return self._generate_empty_timeline(interval_minutes)
         
         # Sort by timestamp
         history.sort(key=lambda x: x['timestamp'])
         
-        time_series = []
-        current_interval_start = None
-        current_bucket = {'attacks': 0, 'normal': 0, 'total': 0}
+        # Create continuous timeline
+        now = datetime.now()
+        earliest_time = datetime.fromisoformat(history[0]['timestamp']) if history else now
         
+        # Round to interval boundaries
+        start_time = earliest_time.replace(second=0, microsecond=0)
+        start_time = start_time.replace(
+            minute=(start_time.minute // interval_minutes) * interval_minutes
+        )
+        
+        end_time = now.replace(second=0, microsecond=0)
+        end_time = end_time.replace(
+            minute=(end_time.minute // interval_minutes) * interval_minutes
+        )
+        
+        # Generate all time buckets
+        time_buckets = {}
+        current_time = start_time
+        while current_time <= end_time:
+            time_buckets[current_time.isoformat()] = {'attacks': 0, 'normal': 0, 'total': 0}
+            current_time += timedelta(minutes=interval_minutes)
+        
+        # Populate buckets with actual data
         for entry in history:
             entry_time = datetime.fromisoformat(entry['timestamp'])
-            
-            # Determine interval start
             interval_start = entry_time.replace(second=0, microsecond=0)
             interval_start = interval_start.replace(
                 minute=(interval_start.minute // interval_minutes) * interval_minutes
             )
             
-            if current_interval_start is None:
-                current_interval_start = interval_start
-            
-            if interval_start != current_interval_start:
-                # Finalize current bucket
-                time_series.append({
-                    'timestamp': current_interval_start.isoformat(),
-                    **current_bucket
-                })
-                
-                # Start new bucket
-                current_interval_start = interval_start
-                current_bucket = {'attacks': 0, 'normal': 0, 'total': 0}
-            
-            # Update current bucket
-            current_bucket['total'] += 1
-            if entry['prediction'] == 'Attack':
-                current_bucket['attacks'] += 1
-            else:
-                current_bucket['normal'] += 1
+            bucket_key = interval_start.isoformat()
+            if bucket_key in time_buckets:
+                bucket = time_buckets[bucket_key]
+                bucket['total'] += 1
+                if entry['prediction'] == 'Attack':
+                    bucket['attacks'] += 1
+                else:
+                    bucket['normal'] += 1
         
-        # Add final bucket
-        if current_bucket['total'] > 0:
+        # Convert to sorted list
+        time_series = []
+        for timestamp in sorted(time_buckets.keys()):
+            bucket = time_buckets[timestamp]
             time_series.append({
-                'timestamp': current_interval_start.isoformat(),
-                **current_bucket
+                'timestamp': timestamp,
+                **bucket
+            })
+        
+        # Limit to reasonable number of points (max 100)
+        if len(time_series) > 100:
+            step = len(time_series) // 100
+            time_series = time_series[::step]
+        
+        return time_series
+    
+    def _generate_empty_timeline(self, interval_minutes: int, num_buckets: int = 20) -> List[Dict]:
+        """Generate empty timeline for when no historical data exists"""
+        now = datetime.now()
+        time_series = []
+        
+        for i in range(num_buckets):
+            bucket_time = now - timedelta(minutes=interval_minutes * (num_buckets - 1 - i))
+            bucket_time = bucket_time.replace(second=0, microsecond=0)
+            bucket_time = bucket_time.replace(
+                minute=(bucket_time.minute // interval_minutes) * interval_minutes
+            )
+            
+            time_series.append({
+                'timestamp': bucket_time.isoformat(),
+                'attacks': 0,
+                'normal': 0,
+                'total': 0
             })
         
         return time_series

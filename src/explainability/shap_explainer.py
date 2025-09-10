@@ -49,27 +49,20 @@ class ShapExplainer:
     
     def _initialize_explainer(self):
         """Initialize appropriate SHAP explainer based on model type"""
+        # Always use KernelExplainer for web dashboard to avoid feature mismatch issues
+        # TreeExplainer can be sensitive to model/data feature alignment
         try:
-            # Try TreeExplainer first (faster for tree-based models)
-            if hasattr(self.model, 'feature_importances_'):
-                self.explainer = shap.TreeExplainer(self.model)
-                self.explainer_type = "tree"
-            else:
-                # Use KernelExplainer for other models
-                self.explainer = shap.KernelExplainer(
-                    self.model.predict_proba, 
-                    self.background_data[:100]  # Sample for efficiency
-                )
-                self.explainer_type = "kernel"
-                
-        except Exception as e:
-            self.logger.warning(f"Failed to initialize TreeExplainer: {e}")
-            # Fallback to KernelExplainer
+            background_sample_size = min(100, len(self.background_data))
             self.explainer = shap.KernelExplainer(
                 self.model.predict_proba, 
-                self.background_data[:100]
+                self.background_data[:background_sample_size]
             )
             self.explainer_type = "kernel"
+            self.logger.info(f"Initialized KernelExplainer with {background_sample_size} background samples")
+                
+        except Exception as e:
+            self.logger.error(f"Failed to initialize SHAP explainer: {e}")
+            raise RuntimeError(f"Cannot initialize SHAP explainer: {e}")
     
     def _define_feature_categories(self) -> Dict[str, List[str]]:
         """Define cybersecurity-specific feature categories"""
@@ -215,8 +208,10 @@ class ShapExplainer:
             for feature in features:
                 if feature in self.feature_names:
                     idx = self.feature_names.index(feature)
-                    category_shap += abs(explanation.shap_values[idx])
-                    category_count += 1
+                    # Add bounds checking to prevent index out of bounds errors
+                    if idx < len(explanation.shap_values):
+                        category_shap += abs(explanation.shap_values[idx])
+                        category_count += 1
             
             if category_count > 0:
                 category_importance[category] = category_shap / category_count

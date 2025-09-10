@@ -1,0 +1,588 @@
+{
+  "model_performance": {
+    "test_accuracy": 0.8485400573288636,
+    "total_test_samples": 82332,
+    "attack_samples": 45332,
+    "normal_samples": 37000
+  },
+  "shap_results": {
+    "prediction": 1.0,
+    "probability": 0.929304528788002,
+    "confidence": 0.6448681247891745,
+    "dashboard_format": {
+      "prediction": {
+        "label": "Attack",
+        "probability": 0.929304528788002,
+        "confidence": 0.6448681247891745
+      },
+      "top_features": [
+        {
+          "name": "swin",
+          "value": -0.9154073429658452,
+          "importance": 0.05827665491017132,
+          "impact": "positive"
+        },
+        {
+          "name": "djit",
+          "value": -0.14881780566060024,
+          "importance": -0.05827665491017127,
+          "impact": "negative"
+        },
+        {
+          "name": "dwin",
+          "value": -0.9064315437341032,
+          "importance": -0.031207000996361152,
+          "impact": "negative"
+        },
+        {
+          "name": "tcprtt",
+          "value": -0.5216596150973576,
+          "importance": 0.03120700099636105,
+          "impact": "positive"
+        },
+        {
+          "name": "sjit",
+          "value": -0.11066773566394987,
+          "importance": 0.02740819637733517,
+          "impact": "positive"
+        },
+        {
+          "name": "dinpkt",
+          "value": -0.08937002953273612,
+          "importance": -0.027408196377335135,
+          "impact": "negative"
+        },
+        {
+          "name": "synack",
+          "value": -0.484345974086776,
+          "importance": -0.015250964793522845,
+          "impact": "negative"
+        },
+        {
+          "name": "ackdat",
+          "value": -0.5030137004862794,
+          "importance": 0.015250964793522802,
+          "impact": "positive"
+        },
+        {
+          "name": "dloss",
+          "value": -0.1317586669446255,
+          "importance": -0.014718235179819548,
+          "impact": "negative"
+        },
+        {
+          "name": "sinpkt",
+          "value": -0.13614128778654142,
+          "importance": 0.014718235179819513,
+          "impact": "positive"
+        }
+      ],
+      "category_importance": {
+        "network_flow": 0.013755150139853718,
+        "protocol_info": 0.0014920080620404019,
+        "timing_patterns": 0.02947875637418263,
+        "behavioral_indicators": 0.00397450369449518,
+        "binary_flags": 0.0033075128513232435
+      },
+      "base_value": 0.6804086893538878,
+      "explanation_metadata": {
+        "explainer_type": "tree",
+        "total_features": 42
+      }
+    }
+  },
+  "lime_results": {
+    "prediction": 1.0,
+    "probability": 0.929304528788002,
+    "dashboard_format": {
+      "prediction": {
+        "label": "Attack",
+        "probability": 0.929304528788002,
+        "local_prediction": 0.7233159708301762,
+        "confidence": 0.8586090575760039
+      },
+      "explanation": {
+        "method": "LIME",
+        "model_score": 0.5358595450149619,
+        "intercept": 0.3993270844461743
+      },
+      "feature_explanations": [
+        {
+          "feature": "sttl",
+          "value": 0.7232679941563999,
+          "importance": 0.14612354968612892,
+          "impact": "increases",
+          "explanation": "Source TTL - abnormal TTL values may indicate spoofed packets. Current value 0.7232679941563999 increases attack probability by 0.146",
+          "insight": "Source TTL - abnormal TTL values may indicate spoofed packets"
+        },
+        {
+          "feature": "state",
+          "value": 0.742936097226822,
+          "importance": 0.05955626805465529,
+          "impact": "increases",
+          "explanation": "Connection state - incomplete connections suggest scanning. Current value 0.742936097226822 increases attack probability by 0.060",
+          "insight": "Connection state - incomplete connections suggest scanning"
+        },
+        {
+          "feature": "ct_srv_dst",
+          "value": -0.6601106155465276,
+          "importance": 0.04143492814191867,
+          "impact": "increases",
+          "explanation": "Service-destination connections - attack distribution. Current value -0.6601106155465276 increases attack probability by 0.041",
+          "insight": "Service-destination connections - attack distribution"
+        },
+        {
+          "feature": "ct_srv_src",
+          "value": -0.6825702470760665,
+          "importance": 0.04016896858719647,
+          "impact": "increases",
+          "explanation": "Service-source connections - service targeting behavior. Current value -0.6825702470760665 increases attack probability by 0.040",
+          "insight": "Service-source connections - service targeting behavior"
+        },
+        {
+          "feature": "is_sm_ips_ports",
+          "value": -0.12650796304403722,
+          "importance": 0.02574956748653494,
+          "impact": "increases",
+          "explanation": "Small IPs/ports indicator - scanning behavior. Current value -0.12650796304403722 increases attack probability by 0.026",
+          "insight": "Small IPs/ports indicator - scanning behavior"
+        },
+        {
+          "feature": "dttl",
+          "value": -0.7204058755078845,
+          "importance": 0.02279408682067038,
+          "impact": "increases",
+          "explanation": "Destination TTL - can reveal OS fingerprinting attempts. Current value -0.7204058755078845 increases attack probability by 0.023",
+          "insight": "Destination TTL - can reveal OS fingerprinting attempts"
+        },
+        {
+          "feature": "rate",
+          "value": -0.027189136189218182,
+          "importance": -0.016799981914810528,
+          "impact": "decreases",
+          "explanation": "Feature rate. Current value -0.027189136189218182 decreases attack probability by 0.017",
+          "insight": "Feature rate"
+        },
+        {
+          "feature": "state",
+          "value": 0.742936097226822,
+          "importance": 0.014425146058217667,
+          "impact": "increases",
+          "explanation": "Connection state - incomplete connections suggest scanning. Current value 0.742936097226822 increases attack probability by 0.014",
+          "insight": "Connection state - incomplete connections suggest scanning"
+        },
+        {
+          "feature": "dmean",
+          "value": -0.4807028160415566,
+          "importance": 0.01400307803563648,
+          "impact": "increases",
+          "explanation": "Feature dmean. Current value -0.4807028160415566 increases attack probability by 0.014",
+          "insight": "Feature dmean"
+        },
+        {
+          "feature": "trans_depth",
+          "value": -0.13641509671717633,
+          "importance": -0.013506539082138955,
+          "impact": "decreases",
+          "explanation": "Feature trans_depth. Current value -0.13641509671717633 decreases attack probability by 0.014",
+          "insight": "Feature trans_depth"
+        }
+      ],
+      "summary": {
+        "top_positive_features": [
+          {
+            "feature": "sttl",
+            "value": 0.7232679941563999,
+            "importance": 0.14612354968612892,
+            "impact": "increases",
+            "explanation": "Source TTL - abnormal TTL values may indicate spoofed packets. Current value 0.7232679941563999 increases attack probability by 0.146",
+            "insight": "Source TTL - abnormal TTL values may indicate spoofed packets"
+          },
+          {
+            "feature": "state",
+            "value": 0.742936097226822,
+            "importance": 0.05955626805465529,
+            "impact": "increases",
+            "explanation": "Connection state - incomplete connections suggest scanning. Current value 0.742936097226822 increases attack probability by 0.060",
+            "insight": "Connection state - incomplete connections suggest scanning"
+          },
+          {
+            "feature": "ct_srv_dst",
+            "value": -0.6601106155465276,
+            "importance": 0.04143492814191867,
+            "impact": "increases",
+            "explanation": "Service-destination connections - attack distribution. Current value -0.6601106155465276 increases attack probability by 0.041",
+            "insight": "Service-destination connections - attack distribution"
+          },
+          {
+            "feature": "ct_srv_src",
+            "value": -0.6825702470760665,
+            "importance": 0.04016896858719647,
+            "impact": "increases",
+            "explanation": "Service-source connections - service targeting behavior. Current value -0.6825702470760665 increases attack probability by 0.040",
+            "insight": "Service-source connections - service targeting behavior"
+          },
+          {
+            "feature": "is_sm_ips_ports",
+            "value": -0.12650796304403722,
+            "importance": 0.02574956748653494,
+            "impact": "increases",
+            "explanation": "Small IPs/ports indicator - scanning behavior. Current value -0.12650796304403722 increases attack probability by 0.026",
+            "insight": "Small IPs/ports indicator - scanning behavior"
+          }
+        ],
+        "top_negative_features": [],
+        "explanation_strength": 0.3945621138679083
+      }
+    }
+  },
+  "aggregated_results": {
+    "prediction": 1.0,
+    "confidence": 0.3758692955912946,
+    "risk_level": "low",
+    "attack_type": "unknown_attack",
+    "methods_agreement": 0.0,
+    "dashboard_format": {
+      "prediction_summary": {
+        "label": "Attack",
+        "probability": 0.929304528788002,
+        "confidence": 0.3758692955912946,
+        "risk_level": "low",
+        "predicted_attack_type": "unknown_attack",
+        "timestamp": "2025-08-16T10:08:03.661972"
+      },
+      "explanation_methods": {
+        "shap_available": true,
+        "lime_available": true,
+        "methods_agreement": 0.0
+      },
+      "consensus_analysis": {
+        "top_consensus_features": [
+          {
+            "feature": "ct_srv_src",
+            "shap_importance": 0.004741099332845089,
+            "lime_importance": 0.04016896858719647,
+            "agreement": true,
+            "consensus_strength": 0.11802890389264999,
+            "avg_importance": 0.02245503396002078
+          },
+          {
+            "feature": "dttl",
+            "shap_importance": -0.009232627952409783,
+            "lime_importance": 0.02279408682067038,
+            "agreement": false,
+            "consensus_strength": 0.4050448708494587,
+            "avg_importance": 0.016013357386540084
+          },
+          {
+            "feature": "dmean",
+            "shap_importance": 0.011055668886879281,
+            "lime_importance": 0.01400307803563648,
+            "agreement": true,
+            "consensus_strength": 0.7895170518041585,
+            "avg_importance": 0.01252937346125788
+          },
+          {
+            "feature": "sinpkt",
+            "shap_importance": 0.014718235179819513,
+            "lime_importance": 0.007756005400861746,
+            "agreement": true,
+            "consensus_strength": 0.5269657201493948,
+            "avg_importance": 0.01123712029034063
+          },
+          {
+            "feature": "rate",
+            "shap_importance": 0.004853872074576977,
+            "lime_importance": -0.016799981914810528,
+            "agreement": "False",
+            "consensus_strength": 0.28892126784362193,
+            "avg_importance": 0.010826926994693752
+          },
+          {
+            "feature": "sbytes",
+            "shap_importance": -0.014018355203438816,
+            "lime_importance": 0.006172544021191218,
+            "agreement": false,
+            "consensus_strength": 0.4403187058405428,
+            "avg_importance": 0.010095449612315018
+          },
+          {
+            "feature": "dloss",
+            "shap_importance": -0.014718235179819548,
+            "lime_importance": -0.00509987686934105,
+            "agreement": true,
+            "consensus_strength": 0.3465005693300504,
+            "avg_importance": 0.009909056024580299
+          },
+          {
+            "feature": "trans_depth",
+            "shap_importance": -0.004259876187682897,
+            "lime_importance": -0.013506539082138955,
+            "agreement": true,
+            "consensus_strength": 0.3153936150317113,
+            "avg_importance": 0.008883207634910927
+          },
+          {
+            "feature": "sload",
+            "shap_importance": 0.009232627952409776,
+            "lime_importance": -0.00715682637028621,
+            "agreement": "False",
+            "consensus_strength": 0.775166768029273,
+            "avg_importance": 0.008194727161347993
+          },
+          {
+            "feature": "ct_ftp_cmd",
+            "shap_importance": 0.004814123480439102,
+            "lime_importance": 0.010922084129483894,
+            "agreement": true,
+            "consensus_strength": 0.44076967576577214,
+            "avg_importance": 0.007868103804961498
+          }
+        ],
+        "explanation_strength": 14
+      },
+      "individual_explanations": {
+        "shap": {
+          "method": "SHAP",
+          "base_value": 0.6804086893538878,
+          "confidence": 0.6448681247891745,
+          "top_features": [
+            {
+              "name": "swin",
+              "value": -0.9154073429658452,
+              "importance": 0.05827665491017132,
+              "abs_importance": 0.05827665491017132
+            },
+            {
+              "name": "djit",
+              "value": -0.14881780566060024,
+              "importance": -0.05827665491017127,
+              "abs_importance": 0.05827665491017127
+            },
+            {
+              "name": "dwin",
+              "value": -0.9064315437341032,
+              "importance": -0.031207000996361152,
+              "abs_importance": 0.031207000996361152
+            },
+            {
+              "name": "tcprtt",
+              "value": -0.5216596150973576,
+              "importance": 0.03120700099636105,
+              "abs_importance": 0.03120700099636105
+            },
+            {
+              "name": "sjit",
+              "value": -0.11066773566394987,
+              "importance": 0.02740819637733517,
+              "abs_importance": 0.02740819637733517
+            },
+            {
+              "name": "dinpkt",
+              "value": -0.08937002953273612,
+              "importance": -0.027408196377335135,
+              "abs_importance": 0.027408196377335135
+            },
+            {
+              "name": "synack",
+              "value": -0.484345974086776,
+              "importance": -0.015250964793522845,
+              "abs_importance": 0.015250964793522845
+            },
+            {
+              "name": "ackdat",
+              "value": -0.5030137004862794,
+              "importance": 0.015250964793522802,
+              "abs_importance": 0.015250964793522802
+            },
+            {
+              "name": "dloss",
+              "value": -0.1317586669446255,
+              "importance": -0.014718235179819548,
+              "abs_importance": 0.014718235179819548
+            },
+            {
+              "name": "sinpkt",
+              "value": -0.13614128778654142,
+              "importance": 0.014718235179819513,
+              "abs_importance": 0.014718235179819513
+            },
+            {
+              "name": "dbytes",
+              "value": -0.10392288770107254,
+              "importance": 0.01401835520343883,
+              "abs_importance": 0.01401835520343883
+            },
+            {
+              "name": "sbytes",
+              "value": -0.04777178990907683,
+              "importance": -0.014018355203438816,
+              "abs_importance": 0.014018355203438816
+            },
+            {
+              "name": "dmean",
+              "value": -0.4807028160415566,
+              "importance": 0.011055668886879281,
+              "abs_importance": 0.011055668886879281
+            },
+            {
+              "name": "smean",
+              "value": 0.5435312828417282,
+              "importance": -0.011055668886879266,
+              "abs_importance": 0.011055668886879266
+            },
+            {
+              "name": "stcpb",
+              "value": -0.7151765320679372,
+              "importance": 0.00975618495276791,
+              "abs_importance": 0.00975618495276791
+            },
+            {
+              "name": "dtcpb",
+              "value": -0.7155687700341328,
+              "importance": -0.009756184952767909,
+              "abs_importance": 0.009756184952767909
+            },
+            {
+              "name": "dttl",
+              "value": -0.7204058755078845,
+              "importance": -0.009232627952409783,
+              "abs_importance": 0.009232627952409783
+            },
+            {
+              "name": "sload",
+              "value": 0.5675905326380726,
+              "importance": 0.009232627952409776,
+              "abs_importance": 0.009232627952409776
+            },
+            {
+              "name": "sloss",
+              "value": -0.07503991948315326,
+              "importance": -0.008640469455651835,
+              "abs_importance": 0.008640469455651835
+            },
+            {
+              "name": "dload",
+              "value": -0.2772081336194678,
+              "importance": 0.008640469455651827,
+              "abs_importance": 0.008640469455651827
+            }
+          ]
+        },
+        "lime": {
+          "method": "LIME",
+          "local_prediction": 0.7233159708301762,
+          "model_score": 0.5358595450149619,
+          "top_features": [
+            {
+              "name": "sttl",
+              "importance": 0.14612354968612892,
+              "abs_importance": 0.14612354968612892
+            },
+            {
+              "name": "state",
+              "importance": 0.05955626805465529,
+              "abs_importance": 0.05955626805465529
+            },
+            {
+              "name": "ct_srv_dst",
+              "importance": 0.04143492814191867,
+              "abs_importance": 0.04143492814191867
+            },
+            {
+              "name": "ct_srv_src",
+              "importance": 0.04016896858719647,
+              "abs_importance": 0.04016896858719647
+            },
+            {
+              "name": "is_sm_ips_ports",
+              "importance": 0.02574956748653494,
+              "abs_importance": 0.02574956748653494
+            },
+            {
+              "name": "dttl",
+              "importance": 0.02279408682067038,
+              "abs_importance": 0.02279408682067038
+            },
+            {
+              "name": "rate",
+              "importance": -0.016799981914810528,
+              "abs_importance": 0.016799981914810528
+            },
+            {
+              "name": "state",
+              "importance": 0.014425146058217667,
+              "abs_importance": 0.014425146058217667
+            },
+            {
+              "name": "dmean",
+              "importance": 0.01400307803563648,
+              "abs_importance": 0.01400307803563648
+            },
+            {
+              "name": "trans_depth",
+              "importance": -0.013506539082138955,
+              "abs_importance": 0.013506539082138955
+            },
+            {
+              "name": "ct_ftp_cmd",
+              "importance": 0.010922084129483894,
+              "abs_importance": 0.010922084129483894
+            },
+            {
+              "name": "response_body_len",
+              "importance": -0.008628432957883812,
+              "abs_importance": 0.008628432957883812
+            },
+            {
+              "name": "spkts",
+              "importance": -0.008571857837122172,
+              "abs_importance": 0.008571857837122172
+            },
+            {
+              "name": "ct_dst_src_ltm",
+              "importance": 0.008338619521744512,
+              "abs_importance": 0.008338619521744512
+            },
+            {
+              "name": "sinpkt",
+              "importance": 0.007756005400861746,
+              "abs_importance": 0.007756005400861746
+            },
+            {
+              "name": "sload",
+              "importance": -0.00715682637028621,
+              "abs_importance": 0.00715682637028621
+            },
+            {
+              "name": "dur",
+              "importance": -0.006954906315921864,
+              "abs_importance": 0.006954906315921864
+            },
+            {
+              "name": "proto",
+              "importance": -0.006737538212733687,
+              "abs_importance": 0.006737538212733687
+            },
+            {
+              "name": "sbytes",
+              "importance": 0.006172544021191218,
+              "abs_importance": 0.006172544021191218
+            },
+            {
+              "name": "dloss",
+              "importance": -0.00509987686934105,
+              "abs_importance": 0.00509987686934105
+            }
+          ]
+        }
+      },
+      "attack_analysis": {
+        "type": "unknown_attack",
+        "description": "Unknown attack pattern",
+        "risk_assessment": "Low risk - Some unusual patterns but likely benign activity"
+      }
+    }
+  },
+  "test_timestamp": "2025-08-16T10:08:03"
+}

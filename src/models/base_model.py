@@ -204,10 +204,19 @@ class BaseAnomalyDetector(ABC):
         model_data = joblib.load(filepath)
         
         # Create instance with saved parameters
-        instance = cls(
-            name=model_data['name'],
-            **model_data['model_params']
-        )
+        # Some child classes hardcode their name, so only pass it if needed
+        params = model_data['model_params'].copy()
+        try:
+            instance = cls(
+                name=model_data['name'],
+                **params
+            )
+        except TypeError as e:
+            if "multiple values for keyword argument 'name'" in str(e):
+                # Child class hardcodes name, don't pass it explicitly
+                instance = cls(**params)
+            else:
+                raise
         
         # Restore model state
         instance.model = model_data['model']

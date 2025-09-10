@@ -337,6 +337,10 @@ class ModelTrainer:
         Returns:
             Tuple of (model_name, model_instance)
         """
+        # Try to load results from file if not already loaded
+        if not self.results:
+            self._load_results_from_file()
+        
         if not self.results:
             raise ValueError("No training results available. Train models first.")
         
@@ -349,7 +353,51 @@ class ModelTrainer:
                 best_score = score
                 best_model_name = model_name
         
+        if best_model_name is None:
+            raise ValueError("No valid model found with the specified metric.")
+        
+        # Load the model file if not in memory
+        if best_model_name not in self.models:
+            model_path = os.path.join(self.results_dir, f'{best_model_name}_model.joblib')
+            if os.path.exists(model_path):
+                # Get the appropriate model class
+                model_class = self._get_model_class(best_model_name)
+                if model_class:
+                    self.models[best_model_name] = model_class.load(model_path)
+                    self.logger.info(f"Loaded model from {model_path}")
+                else:
+                    # Fallback to direct joblib loading
+                    import joblib
+                    self.models[best_model_name] = joblib.load(model_path)
+                    self.logger.warning(f"Using fallback loading for {best_model_name}")
+            else:
+                raise ValueError(f"Model file not found for {best_model_name}")
+        
         return best_model_name, self.models[best_model_name]
+    
+    def _get_model_class(self, model_name: str):
+        """Get the appropriate model class for a model name."""
+        model_class_map = {
+            'random_forest': RandomForestDetector,
+            'xgboost': XGBoostDetector,
+            'logistic_regression': LogisticRegressionDetector,
+            'mlp': MLPDetector,
+            'gradient_boosting': GradientBoostingDetector,
+            'svm': SVMDetector
+        }
+        return model_class_map.get(model_name)
+    
+    def _load_results_from_file(self):
+        """Load training results from file if available."""
+        results_path = os.path.join(self.results_dir, 'training_results.json')
+        if os.path.exists(results_path):
+            try:
+                with open(results_path, 'r') as f:
+                    self.results = json.load(f)
+                self.logger.info(f"Loaded training results from {results_path}")
+            except Exception as e:
+                self.logger.warning(f"Failed to load results from {results_path}: {e}")
+                self.results = {}
     
     def _save_results(self, results: Dict[str, Dict]) -> None:
         """Save training results to disk."""

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/dashboard.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <div class="header-content">
+                <h1>🛡️ Explainable AI Cybersecurity Dashboard</h1>
+                <div class="header-controls">
+                    <div class="status-indicator" id="connectionStatus">
+                        <span class="status-dot connecting"></span>
+                        <span class="status-text">Connecting...</span>
+                    </div>
+                    <button class="control-btn" id="demoStartBtn">Start Demo</button>
+                    <button class="control-btn secondary" id="demoStopBtn" disabled>Stop Demo</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Alert Bar -->
+        <div class="alert-bar" id="alertBar" style="display: none;">
+            <div class="alert-content">
+                <span class="alert-icon">🚨</span>
+                <div class="alert-details">
+                    <span class="alert-title" id="alertTitle"></span>
+                    <span class="alert-message" id="alertMessage"></span>
+                </div>
+                <button class="alert-close" id="alertClose">×</button>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Real-time Metrics Cards -->
+            <div class="metrics-row">
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <h3>Samples Processed</h3>
+                        <span class="metric-icon">📊</span>
+                    </div>
+                    <div class="metric-value" id="totalSamples">0</div>
+                    <div class="metric-change">+0 this minute</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <h3>Attacks Detected</h3>
+                        <span class="metric-icon">🚨</span>
+                    </div>
+                    <div class="metric-value" id="attacksDetected">0</div>
+                    <div class="metric-change" id="detectionRate">0% detection rate</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <h3>Processing Speed</h3>
+                        <span class="metric-icon">⚡</span>
+                    </div>
+                    <div class="metric-value" id="processingSpeed">0ms</div>
+                    <div class="metric-change" id="throughput">0 samples/min</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <h3>System Status</h3>
+                        <span class="metric-icon">🔧</span>
+                    </div>
+                    <div class="metric-value" id="systemStatus">Ready</div>
+                    <div class="metric-change">All systems operational</div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="charts-row">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h3>Detection Timeline</h3>
+                        <div class="chart-controls">
+                            <select id="timeRange">
+                                <option value="1">Last Hour</option>
+                                <option value="6">Last 6 Hours</option>
+                                <option value="24" selected>Last 24 Hours</option>
+                            </select>
+                            <button class="chart-btn" id="refreshChart" title="Refresh Chart">🔄</button>
+                            <button class="chart-btn" id="toggleLive" title="Toggle Live Updates">⏸️</button>
+                        </div>
+                    </div>
+                    <canvas id="timelineChart"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h3>Attack Types Distribution</h3>
+                    </div>
+                    <canvas id="attackTypesChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Real-time Detection Feed -->
+            <div class="detection-feed">
+                <div class="feed-header">
+                    <h3>🔍 Real-time Detection Feed</h3>
+                    <div class="feed-controls">
+                        <button class="feed-btn" id="pauseBtn">⏸️ Pause</button>
+                        <button class="feed-btn" id="clearBtn">🗑️ Clear</button>
+                    </div>
+                </div>
+                <div class="feed-content" id="detectionFeed">
+                    <div class="feed-placeholder">
+                        <p>🔄 Waiting for detections...</p>
+                        <p class="placeholder-subtitle">Start the demo to see real-time predictions and explanations</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feature Explanations Panel -->
+            <div class="explanations-panel">
+                <div class="panel-header">
+                    <h3>🧠 Latest Explanation</h3>
+                    <div class="explanation-meta" id="explanationMeta">
+                        <span>No recent explanations</span>
+                    </div>
+                </div>
+                <div class="explanation-content" id="explanationContent">
+                    <div class="explanation-placeholder">
+                        <p>Feature importance explanations will appear here</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="dashboard-footer">
+            <div class="footer-content">
+                <span>Explainable AI Cybersecurity System | Real-time Network Intrusion Detection</span>
+                <span id="lastUpdate">Last updated: Never</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', path='/js/dashboard.js') }}"></script>
+</body>
+</html>

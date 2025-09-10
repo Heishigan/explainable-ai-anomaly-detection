@@ -9,7 +9,7 @@ import numpy as np
 import logging
 import sys
 import os
-from datetime import datetime
+from datetime import datetimeexi
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
